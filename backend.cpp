@@ -57,8 +57,7 @@ int client_connect(){
     return 0;
 }
 
-int main(int argc , char *argv[])
-{
+int server_connect(){
     int opt = TRUE;
     int master_socket , addrlen , new_socket , client_socket[30] ,
           max_clients = 30 , activity, i , valread , sd;
@@ -105,9 +104,8 @@ int main(int argc , char *argv[])
     {
         // Then we must be a client.
         perror("bind failed");
-        //exit(EXIT_FAILURE);
-        client_connect();
-        return 0;
+        // Return a -1.
+        return -1;
 
     }
     printf("Listener on port %d \n", PORT);
@@ -185,7 +183,7 @@ int main(int argc , char *argv[])
                 if( client_socket[i] == 0 )
                 {
                     client_socket[i] = new_socket;
-                    printf("Player #%d has joined.\n" , i);
+                    printf("Player #%d has joined.\n" , i+1);
 
                     break;
                 }
@@ -194,7 +192,12 @@ int main(int argc , char *argv[])
             //printf("%s\n", buffer);
 
             //Print out as a string so the printout is clearer.
-            std::cout << std::string(buffer) << std::endl;
+            std::string client_message = std::string(buffer);
+            //Remove extraneous characters of EOL.
+            if (client_message.size () > 0)  
+                client_message.resize (client_message.size () - 5);
+            //Print out client message.
+            std::cout << client_message << std::endl;
         }
 
         //else its some IO operation on some other socket
@@ -211,7 +214,7 @@ int main(int argc , char *argv[])
                     //Somebody disconnected , get his details and print
                     getpeername(sd , (struct sockaddr*)&address , \
                         (socklen_t*)&addrlen);
-                    printf("Player #%d, Host disconnected , ip %s , port %d \n" , i,
+                    printf("Player #%d, Host disconnected , ip %s , port %d \n" , i+1,
                           inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
                     //Close the socket and mark as 0 in list for reuse
@@ -231,5 +234,14 @@ int main(int argc , char *argv[])
         }
     }
 
+    return 0;
+}
+
+int main(int argc , char *argv[])
+{
+    // Logic to check if we are server.
+    // If we are not serve then we must be client.
+    if(server_connect() == -1)
+        client_connect();
     return 0;
 }
