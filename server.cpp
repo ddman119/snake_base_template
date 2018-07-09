@@ -1,5 +1,6 @@
 //Example code: A simple server side code, which echos back the received message.
 //Handle multiple socket connections with select and fd_set on Linux
+#include <iostream>
 #include <cstdio>
 #include <string>   //strlen
 #include <string.h>   //strlen
@@ -12,6 +13,7 @@
 #include <netinet/in.h>
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
 
+#define MAX_BUFFER 1024
 #define TRUE   1
 #define FALSE  0
 #define PORT 8080
@@ -140,13 +142,16 @@ int main(int argc , char *argv[])
                 if( client_socket[i] == 0 )
                 {
                     client_socket[i] = new_socket;
-                    printf("Adding to list of sockets as %d\n" , i);
+                    printf("Player #%d has joined.\n" , i);
 
                     break;
                 }
             }
-            read( new_socket , buffer, 1024);
-            printf("%s\n", buffer);
+            read( new_socket , buffer, MAX_BUFFER);
+            //printf("%s\n", buffer);
+
+            //Print out as a string so the printout is clearer.
+            std::cout << std::string(buffer) << std::endl;
         }
 
         //else its some IO operation on some other socket
@@ -158,12 +163,12 @@ int main(int argc , char *argv[])
             {
                 //Check if it was for closing , and also read the
                 //incoming message
-                if ((valread = read( sd , buffer, 1024)) == 0)
+                if ((valread = read( sd , buffer, MAX_BUFFER)) == 0)
                 {
                     //Somebody disconnected , get his details and print
                     getpeername(sd , (struct sockaddr*)&address , \
                         (socklen_t*)&addrlen);
-                    printf("Host disconnected , ip %s , port %d \n" ,
+                    printf("Player #%d, Host disconnected , ip %s , port %d \n" , i,
                           inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
 
                     //Close the socket and mark as 0 in list for reuse
