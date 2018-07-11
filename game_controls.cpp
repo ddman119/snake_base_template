@@ -1,3 +1,5 @@
+#include<iostream>
+#include<cstdlib>
 /*
 THis will move the snake left once the left arrow key is pressed.
 x = the horizontal velocity of the player
