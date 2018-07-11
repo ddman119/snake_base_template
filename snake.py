@@ -2,6 +2,9 @@
 import pygame
 import random
 import sys
+import os
+os.system("./build.sh")
+import game_controls as gs
 
 ######################
 #   Game constants   #
@@ -15,7 +18,7 @@ gameTitle = "Snake Multiplayer"
 width = 800
 height = 600
 
-# Score tracking 
+# Score tracking
 score = 0
 
 # Number of players
@@ -105,40 +108,40 @@ class snake:
     def events(self, event):
         # Controls the left event
         if (
-                event.key == pygame.K_LEFT or 
-                event.key == pygame.K_a or 
-                event.key == pygame.K_j or 
+                event.key == pygame.K_LEFT or
+                event.key == pygame.K_a or
+                event.key == pygame.K_j or
                 event.key == pygame.K_f
                 ) and self.hdir != 10:
-                    self.hdir = -10
-                    self.vdir = 0
+                    self.hdir = gs.moveLeftX(self.hdir, 1)
+                    self.vdir = gs.moveLeftY(self.vdir, 1)
         # Controls the right event
-        if (    
-                event.key == pygame.K_RIGHT or 
-                event.key == pygame.K_d or 
-                event.key == pygame.K_h or 
+        if (
+                event.key == pygame.K_RIGHT or
+                event.key == pygame.K_d or
+                event.key == pygame.K_h or
                 event.key == pygame.K_l
                 ) and self.hdir != -10: # Check to make sure we aren't already going right.
-                    self.hdir = 10
-                    self.vdir = 0
+                    self.hdir = gs.moveRightX(self.hdir, 1)
+                    self.vdir = gs.moveRightY(self.vdir, 1)
         # Controls the up event
         if (
-                event.key == pygame.K_UP or 
-                event.key == pygame.K_w or 
-                event.key == pygame.K_i or 
+                event.key == pygame.K_UP or
+                event.key == pygame.K_w or
+                event.key == pygame.K_i or
                 event.key == pygame.K_t
                 ) and self.vdir != 10: # Check to make sure we aren't already going up.
-                    self.hdir = 0
-                    self.vdir = -10
+                    self.hdir = gs.moveUpX(self.hdir, 1)
+                    self.vdir = gs.moveUpY(self.vdir, 1)
         # Controls the down event
         if (
-                event.key == pygame.K_DOWN or 
-                event.key == pygame.K_s or 
-                event.key == pygame.K_k or 
+                event.key == pygame.K_DOWN or
+                event.key == pygame.K_s or
+                event.key == pygame.K_k or
                 event.key == pygame.K_g
                 ) and self.vdir != -10: # Check to make sure we aren't already going down.
-                    self.hdir = 0
-                    self.vdir = 10
+                    self.hdir = gs.moveDownX(self.hdir, 1)
+                    self.vdir = gs.moveDownY(self.vdir, 1)
 
     def move(self, snk2=None, snk3=None, snk4=None):
         global NumPlayer
