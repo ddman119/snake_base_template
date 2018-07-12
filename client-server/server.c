@@ -11,22 +11,18 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <queue.c>
+#include "queue.h"
 
-
-struct clientDataSet{
-    fd_set serverReadFds;
-    int socketFd;
-    int clientSockets[MAX_BUFFER_SIZE];
-    int numClients;
-    pthread_mutex_t *clientListMutex;
-    struct queue *queue;
-};
-
-struct clientSocketData{
-    struct clientDataSet *data;
-    int clientSocketFd;
-};
+void removeClient(struct clientDataSet *data, int clientSocketFd);
+void *handleClient(void *chv);
+void *newConnection(void *data);
+void *handleData(void *data);
+void initiateConnection(int socketFd);
+void bindSocket(struct sockaddr_in *serverAddress, int socketFd, long port);
+struct queue* queueInit(void);
+void queueDestroy(struct queue *q);
+void queuePush(struct queue *q, char* msg);
+char* queuePop(struct queue *q);
 
 void removeClient(struct clientDataSet *data, int clientSocketFd)
 {

@@ -1,22 +1,4 @@
-#include <stdio.h>
-#include <pthread.h>
-#include <malloc.h>
-#include <stdlib.h>
-
-
-#define MAX_BUFFER_SIZE 1024
-
-
-struct queue {
-    char *buffer[MAX_BUFFER_SIZE];
-    int head;
-    int tail;
-    int isFull;
-    int isEmpty;
-    pthread_mutex_t *mutex;
-    pthread_cond_t *notFull, *notEmpty;
-};
-
+#include "queue.h"
 
 //Initializes queue
 struct queue* queueInit(void)
