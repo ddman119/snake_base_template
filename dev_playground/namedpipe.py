@@ -16,10 +16,12 @@ while True:
     with open(FIFO) as fifo:
         print("FIFO opened")
         while True:
-        	# Non-blocking read.
+            # Non-blocking read.
             data = fifo.read(1)
             if data != '\n' and data != '':
-            	data_string += str(data)
+                data_string += str(data)
             else:
-            	print('Read: "{0}"'.format(data_string))
-            	data_string = ""
+                if data_string != "":
+                    print('Read: "{0}"'.format(data_string))
+                    data_string = ""
+                break

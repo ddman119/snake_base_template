@@ -1,5 +1,11 @@
 #include<iostream>
 #include<cstdlib>
+#include<string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include<string>
 /*
 THis will move the snake left once the left arrow key is pressed.
 x = the horizontal velocity of the player
@@ -10,10 +16,20 @@ Returns: the GameObject with the updated velocities.
 int moveLeftX(int x, int player)
 {
   x = -10;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+    {
+      write(fd, data.c_str(), strlen(data.c_str()));
+    }
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -24,6 +40,7 @@ int moveLeftX(int x, int player)
     case 4:
       // write to FIFO FIle for Player4
       break;
+    close(fd);
   }
   return x;
 }
@@ -31,10 +48,20 @@ int moveLeftX(int x, int player)
 int moveLeftY(int y, int player)
 {
   y = 0;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+    {
+      write(fd, data.c_str(), strlen(data.c_str()));
+    }
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -45,6 +72,7 @@ int moveLeftY(int y, int player)
     case 4:
       // write to FIFO FIle for Player4
       break;
+    close(fd);
   }
   return y;
 }
@@ -58,10 +86,18 @@ Returns: the GameObject with the updated velocities.
 int moveRightX(int x, int player)
 {
   x = 10;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -79,10 +115,18 @@ int moveRightX(int x, int player)
 int moveRightY(int y, int player)
 {
   y = 0;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -106,10 +150,18 @@ Returns: the GameObject with the updated velocities.
 int moveUpX(int x, int player)
 {
   x = 0;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -127,10 +179,18 @@ int moveUpX(int x, int player)
 int moveUpY(int y, int player)
 {
   y = -10;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -154,10 +214,18 @@ Returns: the GameObject with the updated velocities.
 int moveDownX(int x, int player)
 {
   x = 0;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
@@ -175,10 +243,18 @@ int moveDownX(int x, int player)
 int moveDownY(int y, int player)
 {
   y = 10;
+  int fd;
+  // FIFO file path
+  char const *myfifo = "/tmp/snakegame_fifo";
+  // Creating the named file(FIFO)
+  // mkfifo(<pathname>, <permission>)
+  mkfifo(myfifo, 0666);
+  fd = open(myfifo, O_WRONLY);
+  std::string data = std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
-      // write to FIFO FIle for Player1
+      write(fd, data.c_str(), strlen(data.c_str()));
       break;
     case 2:
       // write to FIFO FIle for Player2
