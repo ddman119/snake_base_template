@@ -3,12 +3,8 @@ import pygame
 import random
 import sys
 import os
-import os.path
-import _thread
 os.system("./build.sh")
 import game_controls as gs
-if os.path.exists("/tmp/snakegame_fifo") == False:
-    os.mkfifo("/tmp/snakegame_fifo")
 
 ######################
 #   Game constants   #
@@ -67,26 +63,11 @@ speed = 20
 # Check if the game is running
 running = True
 
-def listen():
-    FIFO = '/tmp/snakegame_fifo'
-    data_string = ""
-
-    while True:
-        print("Opening FIFO...")
-        with open(FIFO) as fifo:
-            print("FIFO opened")
-            while True:
-                # Non-blocking read.
-                for nextfetch in fifo:
-                    print(nextfetch)
-                break
-
 # Function Name: startGame
 def startGame(width, height, gameTitle):
     pygame.init()
     pygame.font.init()
     random.seed()
-    _thread.start_new(listen, ())
     global screen
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption(gameTitle)
