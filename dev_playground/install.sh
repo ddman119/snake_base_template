@@ -2,6 +2,7 @@
 sudo apt-get update
 sudo apt-get install python3
 sudo apt-get install python3-dev
+sudo apt-get install subversion
 # install pygame
 sudo apt-get install mercurial python3-dev python3-numpy ffmpeg \
 libsdl-image1.2-dev libsdl-mixer1.2-dev libsdl-ttf2.0-dev
