@@ -11,4 +11,5 @@ libavcodec-dev \
 python-numpy subversion
 (cd /usr/local/lib/python3.4/dist-packages/ && sudo svn co svn://seul.org/svn/pygame/trunk pygame)
 (cd pygame && sudo python3 setup.py build && sudo python3 setup.py install)
+# install swig
 sudo apt-get install swig3.0
