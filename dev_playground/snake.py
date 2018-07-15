@@ -3,10 +3,13 @@ import pygame
 import random
 import sys
 import os
+import os.path
 import _thread
 os.system("./build.sh")
-os.mkfifo("/tmp/snakegame_fifo")
 import game_controls as gs
+if os.path.exists("/tmp/snakegame_fifo") == False:
+    os.mkfifo(FIFO)
+
 ######################
 #   Game constants   #
 ######################
@@ -75,7 +78,7 @@ def listen():
             while True:
                 # Non-blocking read.
                 for nextfetch in fifo:
-                    print("Data = " + nextfetch)
+                    print(nextfetch)
                 break
 
 # Function Name: startGame

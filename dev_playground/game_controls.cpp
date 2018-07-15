@@ -23,7 +23,7 @@ int moveLeftX(int x, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(x) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
@@ -55,7 +55,7 @@ int moveLeftY(int y, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(y) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
@@ -93,7 +93,7 @@ int moveRightX(int x, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(x) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
@@ -122,7 +122,7 @@ int moveRightY(int y, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(y) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
@@ -157,7 +157,7 @@ int moveUpX(int x, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(x) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
@@ -186,7 +186,7 @@ int moveUpY(int y, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(y) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
@@ -221,7 +221,7 @@ int moveDownX(int x, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(x) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(x) + "\n";
   switch(player)
   {
     case 1:
@@ -250,7 +250,7 @@ int moveDownY(int y, int player)
   // mkfifo(<pathname>, <permission>)
   mkfifo(myfifo, 0666);
   fd = open(myfifo, O_WRONLY);
-  std::string data = std::to_string(y) + "\n";
+  std::string data = std::to_string(player) + " : " + std::to_string(y) + "\n";
   switch(player)
   {
     case 1:
