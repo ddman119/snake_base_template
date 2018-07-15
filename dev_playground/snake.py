@@ -8,7 +8,7 @@ import _thread
 os.system("./build.sh")
 import game_controls as gs
 if os.path.exists("/tmp/snakegame_fifo") == False:
-    os.mkfifo(FIFO)
+    os.mkfifo("/tmp/snakegame_fifo")
 
 ######################
 #   Game constants   #
