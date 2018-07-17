@@ -9,8 +9,7 @@ void showHelp();
 bool checkArgument(int argc, char* argv[], char *serverAddr, bool & isServer);
 
 int server_connect(int& serverSock, struct sockaddr_in& serverAddr);
-int client_connect(char* serverAddr, int &sock, int &id);
-void createSnakeGame(int id);
+int client_connect(char* serverAddr, int &sock);
 
 int main(int argc , char *argv[])
 {
@@ -36,19 +35,20 @@ int main(int argc , char *argv[])
         server *_pServer = new server(serverSock, serverAddr);
         if (!_pServer->startServer())
             exit(EXIT_FAILURE);
-        createSnakeGame(1);
+        
         _pServer->waitThread();
+        kill(_pServer->m_PythonPid, SIGKILL);
     }
     else    // Act for client
     {
         int id; int sock;
-        if (client_connect(serverAddr, sock, id) == -1)        
+        if (client_connect(serverAddr, sock) == -1)        
             exit(EXIT_FAILURE);
-        client *_pClient = new client(sock, id);
+        client *_pClient = new client(sock);
         if (!_pClient->startClient())
-            exit(EXIT_FAILURE);
-        createSnakeGame(id);
+            exit(EXIT_FAILURE);        
         _pClient->waitThread();
+        kill(_pClient->m_PythonPid, SIGKILL);
     }
     
     return 0;
@@ -91,7 +91,7 @@ void showHelp()
     printf("snake [-c/-s/-h] [server address(in case of argument 2 is -c)]\n");
 }
 
-int client_connect(char* serverAddr, int &sock, int &id){
+int client_connect(char* serverAddr, int &sock){
     
     struct sockaddr_in address;
     int valread;
@@ -132,17 +132,17 @@ int client_connect(char* serverAddr, int &sock, int &id){
 
     int packet_len = *(int *)buffer;
     int msg_code = *(int *)(buffer + sizeof(int));
-    id = *(int *)(buffer + sizeof(int) * 2);
-    if (id == -1)
+    int flag = *(int *)(buffer + sizeof(int) * 2);
+    if (flag == -1)
     {
         printf("Player count is maximum. Can not play\n");
         return -1;
     } else
     {
-        printf("Get player index %d from server\n", id);
+        printf("Login success. Please wait until start game\n");
     }
 
-    return 0;    
+    return 0;
 }
 
 int server_connect(int& serverSock, struct sockaddr_in& serverAddr){
@@ -152,7 +152,7 @@ int server_connect(int& serverSock, struct sockaddr_in& serverAddr){
     if( (serverSock = socket(AF_INET , SOCK_STREAM , 0)) == 0)
     {
         perror("socket failed");
-        return -1;        
+        return -1;
     }
 
     //set master socket to allow multiple connections ,
@@ -187,15 +187,3 @@ int server_connect(int& serverSock, struct sockaddr_in& serverAddr){
 
     return 0;
 }
-
-void createSnakeGame(int id)
-{
-    char cmd[MAX_LEN];
-    sprintf(cmd, "python snake.py %d", id);
-    pid_t pid = fork();
-    if (pid == 0)
-    {
-        system(cmd);
-    }
-}
-
