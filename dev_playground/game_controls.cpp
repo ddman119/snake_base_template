@@ -1,11 +1,11 @@
-#include<iostream>
-#include<cstdlib>
-#include<string.h>
+#include <iostream>
+#include <cstdlib>
+#include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include<string>
+#include <string>
 /*
 THis will move the snake left once the left arrow key is pressed.
 x = the horizontal velocity of the player

@@ -2,9 +2,6 @@
 import pygame
 import random
 import sys
-import os
-os.system("./build.sh")
-import game_controls as gs
 
 ######################
 #   Game constants   #
@@ -18,7 +15,7 @@ gameTitle = "Snake Multiplayer"
 width = 800
 height = 600
 
-# Score tracking
+# Score tracking 
 score = 0
 
 # Number of players
@@ -108,40 +105,40 @@ class snake:
     def events(self, event):
         # Controls the left event
         if (
-                event.key == pygame.K_LEFT or
-                event.key == pygame.K_a or
-                event.key == pygame.K_j or
+                event.key == pygame.K_LEFT or 
+                event.key == pygame.K_a or 
+                event.key == pygame.K_j or 
                 event.key == pygame.K_f
                 ) and self.hdir != 10:
-                    self.hdir = gs.moveLeftX(self.hdir, 1)
-                    self.vdir = gs.moveLeftY(self.vdir, 1)
+                    self.hdir = -10
+                    self.vdir = 0
         # Controls the right event
-        if (
-                event.key == pygame.K_RIGHT or
-                event.key == pygame.K_d or
-                event.key == pygame.K_h or
+        if (    
+                event.key == pygame.K_RIGHT or 
+                event.key == pygame.K_d or 
+                event.key == pygame.K_h or 
                 event.key == pygame.K_l
                 ) and self.hdir != -10: # Check to make sure we aren't already going right.
-                    self.hdir = gs.moveRightX(self.hdir, 1)
-                    self.vdir = gs.moveRightY(self.vdir, 1)
+                    self.hdir = 10
+                    self.vdir = 0
         # Controls the up event
         if (
-                event.key == pygame.K_UP or
-                event.key == pygame.K_w or
-                event.key == pygame.K_i or
+                event.key == pygame.K_UP or 
+                event.key == pygame.K_w or 
+                event.key == pygame.K_i or 
                 event.key == pygame.K_t
                 ) and self.vdir != 10: # Check to make sure we aren't already going up.
-                    self.hdir = gs.moveUpX(self.hdir, 1)
-                    self.vdir = gs.moveUpY(self.vdir, 1)
+                    self.hdir = 0
+                    self.vdir = -10
         # Controls the down event
         if (
-                event.key == pygame.K_DOWN or
-                event.key == pygame.K_s or
-                event.key == pygame.K_k or
+                event.key == pygame.K_DOWN or 
+                event.key == pygame.K_s or 
+                event.key == pygame.K_k or 
                 event.key == pygame.K_g
                 ) and self.vdir != -10: # Check to make sure we aren't already going down.
-                    self.hdir = gs.moveDownX(self.hdir, 1)
-                    self.vdir = gs.moveDownY(self.vdir, 1)
+                    self.hdir = 0
+                    self.vdir = 10
 
     def move(self, snk2=None, snk3=None, snk4=None):
         global NumPlayer
@@ -208,37 +205,39 @@ class food():
 
 # Allows user to select singleplayer or multiplayer modes
 def playerSelect():
-    loop = True
     global NumPlayer
-    while loop:
-        text("1-4 Player Snake, press (1,2,3,4)", 30, -1, height / 2, (255, 255, 255))
-        pygame.display.flip()
-        clock.tick(50)
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-                snake.crash = False
-                sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    NumPlayer = "1"
-                    loop = False
-                if event.key == pygame.K_2:
-                    NumPlayer = "2"
-                    loop = False
-                if event.key == pygame.K_3:
-                    NumPlayer = "3"
-                    loop = False
-                if event.key == pygame.K_4:
-                    NumPlayer = "4"
-                    loop = False
-    del loop
+    NumPlayer = sys.argv[1]    
+    # loop = True
+    # global NumPlayer
+    # while loop:
+    #     text("1-4 Player Snake, press (1,2,3,4)", 30, -1, height / 2, (255, 255, 255))
+    #     pygame.display.flip()
+    #     clock.tick(50)
+    #     for event in pygame.event.get():
+    #         if event.type == pygame.QUIT:
+    #             running = False
+    #             snake.crash = False
+    #             sys.exit()
+    #         if event.type == pygame.KEYDOWN:
+    #             if event.key == pygame.K_1:
+    #                 NumPlayer = "1"
+    #                 loop = False
+    #             if event.key == pygame.K_2:
+    #                 NumPlayer = "2"
+    #                 loop = False
+    #             if event.key == pygame.K_3:
+    #                 NumPlayer = "3"
+    #                 loop = False
+    #             if event.key == pygame.K_4:
+    #                 NumPlayer = "4"
+    #                 loop = False
+    # del loop
 
 startGame(width, height, gameTitle)
 
 playerSelect()
 
-if NumPlayer == "1":
+if NumPlayer == "1":    
     onePlayer = True
     snake1 = snake(player1_x, player1_y, player1_color)
     inGame = ["snake1"]
