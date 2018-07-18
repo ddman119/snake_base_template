@@ -7,6 +7,7 @@ import random
 import string
 import sys
 import threading
+from multiprocessing import Process, Lock
 
 ######################
 #   Game constants   #
@@ -14,24 +15,11 @@ import threading
 
 # Screen Size (The default is set to smallest screen resolution for PCs)
 # TODO: Change this to detect the user's current screen resolution and use those dimensions for fullscreen.
-width = 800
-height = 600
+WIDTH = 800
+HEIGHT = 600
 
 # Score tracking 
 score = 0
-
-# Number of players
-NumPlayer = ""
-
-# Self index
-SelfIndex = ""
-
-# Server or Client ?
-IsServer = False
-
-# Food position
-Food_x = 0
-Food_y = 0
 
 # Fifo read/write path
 FIFO_W_PATH = ""
@@ -40,92 +28,146 @@ FIFO_R_PATH = ""
 # Sync to server time
 IsSync = False;
 
-# Flag that controls how many players are playing the game
-# TODO: Remove these as the backend will tell the python's frontend how many players to start with.
-onePlayer = False
-twoPlayers = False
-threePlayers = False
-fourPlayer = False
+# Array to represent snakes
+_pSnakeArr = []
 
-# Array to keep track of how many players are currently in the game , "playing"
-ingame = []
+# Food instance
+_pFood = None
 
-# Controls
+# Number of players
+_pPlayerNum = 0
 
-# Each keys for control 4 snake instance
-key1 = pygame.K_UP
-key2 = pygame.K_UP
-key3 = pygame.K_UP
-key4 = pygame.K_UP
+# Self index
+_pSelfIndex = -1
 
 # Keys for control snake
-control_keys = [pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]
+_pKeyArr = [pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]
 
-# Colors
-player1_color = (255, 0, 0)      # Red
-player2_color = (0, 255, 0)      # Green
-player3_color = (0, 0, 255)      # Blue
-player4_color = (255, 255, 255)  # White
+# Colors : Red, Green, Blue, White
+_pColorArr = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)]
 
 # Initial Position of the players
-player1_x = width / 5
-player1_y = height / 4
-player2_x = width / 5
-player2_y = (height * 3) / 4
-player3_x = (width * 4) / 5
-player3_y = height / 4
-player4_x = (width * 4) / 5
-player4_y = (height * 3) / 4
+_pInitPosArr = [(WIDTH / 5, HEIGHT / 4), (WIDTH / 5, (HEIGHT * 3) / 4), ((WIDTH * 4) / 5, HEIGHT / 4), ((WIDTH * 4) / 5, (HEIGHT * 3) / 4)]
+
+# Display string array
+_pDispStrArr = ["Player 1: Red", "Player 2: Green", "Player 3: Blue", "Player 4: White"]
+
+# Winner string array
+_pWinStrArr = ["Winner: Player 1! ", "Winner: Player 2! ", "Winner: Player 3! ", "Winner: Player 4! "]
 
 # Speed of the game
-speed = 20
+speed = 30
 
 # Check if the game is running
 running = True
 
-# Function Name: startGame
-def startGame(width, height):    
+# Initialize pygame and env
+def startGame(food):
     # Anaylse argument
     args = sys.argv
-    if len(args) != 4:
-        print '[python] Argument is invalid. \n Argument type must be : python snake.py [player count] [self index] [IsServer]'
+    if len(args) != 5:
+        print '[python] Argument is invalid. \n Argument type must be : python snake.py [player count] [self index] [Food_x] [Food_y]'
         sys.exit()
     
-    global NumPlayer, SelfIndex, IsServer
-    NumPlayer = args[1]
-    SelfIndex = args[2]
-    if args[3] == "Server":
-        IsServer = True    
+    global _pPlayerNum, _pSelfIndex
+    _pPlayerNum = int(args[1])
+    _pSelfIndex = int(args[2])
+    food.setPosition(int(args[3]), int(args[4]))    
 
     global FIFO_W_PATH, FIFO_R_PATH
-    FIFO_W_PATH = '/tmp/snakegame_fifo_w_{0}'.format(SelfIndex)
-    FIFO_R_PATH = '/tmp/snakegame_fifo_r_{0}'.format(SelfIndex)
+    FIFO_W_PATH = '/tmp/snakegame_fifo_w_{0}'.format(_pSelfIndex)
+    FIFO_R_PATH = '/tmp/snakegame_fifo_r_{0}'.format(_pSelfIndex)
 
     # init pygame
     pygame.init()
     pygame.font.init()
     random.seed()
     global screen
-    screen = pygame.display.set_mode((width, height))
-    gameTitle = 'Network Snake Game : Player{0}'.format(SelfIndex)
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    gameTitle = 'Network Snake Game : Player{0}'.format(_pSelfIndex)
     pygame.display.set_caption(gameTitle)
     global clock
     clock = pygame.time.Clock()
-    
+
+# Create 'cnt' numbers of snake
+def createSnakeArray(snakeArr, cnt):
+    for x in xrange(0, cnt):
+        snakeArr.append(snake(_pInitPosArr[x][0], _pInitPosArr[x][1], _pColorArr[x]))
+
 def text(intext, size, inx, iny, color):
     font = pygame.font.Font(None, size)
     text = font.render((intext), 0, color)
     if inx == -1:
-        x = width / 2
+        x = WIDTH / 2
     else:
         x = inx
     if iny == -1:
-        y = height / 2
+        y = HEIGHT / 2
     else:
         y = iny
     textpos = text.get_rect(centerx=x, centery=y)
     screen.blit(text, textpos)
 
+# Send data to backend via fifo
+def sendToBackend(data):
+    try:
+        with open(FIFO_W_PATH, 'w') as fifo:
+            # print '[python] Send to backend : {0}'.format(data)            
+            fifo.write(data)
+            fifo.flush()
+            fifo.close()
+    except Exception as e:
+        print '[python] Send to backend failed'
+
+# Get state of snake
+def getSnakeState(snake):
+    state = ''
+    
+    if snake.die:
+        state = 'die'
+    else:
+        state = 'live'
+        state = state + ':' + str(snake.x) + ':' + str(snake.y) + ':' + str(snake.hdir) + ':' + str(snake.vdir)
+        state = state + ':' + str(snake.length) + ':' + str(len(snake.pixels))
+        for index in xrange(len(snake.pixels) - 1, -1, -1):
+            state = state + ':' + str(snake.pixels[index][0]) + ':' + str(snake.pixels[index][1])
+
+    return state
+
+# Get state of food
+def getFoodState(food):
+    state = ''    
+    state = str(food.x) + ':' + str(food.y)
+    return state
+
+# Move and draw all snakes
+def moveAndDrawSnakes(snakeArr):    
+    snake_cnt = len(snakeArr)
+    for x in xrange(0, snake_cnt):
+        snakeArr[x].move(x, snakeArr)
+        snakeArr[x].draw()
+
+# Display player string to screen
+def dispPlayerString(cnt):
+    for x in xrange(0, cnt):
+        text(_pDispStrArr[x], 16, (WIDTH * (x + 1)) / 5, 10, _pColorArr[x])
+
+# Check condition if snake hits to food
+def checkHitCondition(snake, food):
+    global score    
+    if food.hitCheck(snake.pixels):        
+        score = score + 10
+        snake.length = snake.length + 7
+        # Send to backend for relocating food
+        sendstr = 'FOODHIT\n'
+        # print '[python] Hit food. send relocate request'
+        sendToBackend(sendstr)
+
+        mystate = 'STATE:{0}:'.format(_pSelfIndex)
+        mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
+        sendToBackend(mystate)
+
+# Class to represent snake instance
 class snake:
     def __init__(self, x, y, color=(0, 255, 0), pixels=None):
         self.x = x
@@ -159,39 +201,28 @@ class snake:
             self.hdir = 0
             self.vdir = 10
 
-    def move(self, snk2=None, snk3=None, snk4=None):
-        global NumPlayer
+    def move(self, index, snakeArr):
         if not self.die:
             self.x += self.hdir
             self.y += self.vdir
 
             if (self.x, self.y) in self.pixels:
                 self.crash = True
-            # Checks if another snake exists.
-            if NumPlayer == "2":
-                if snk2.die == False and (self.x, self.y) in snk2.pixels:
-                    self.crash = True
-            if NumPlayer == "3":
-                if snk2.die == False and (self.x, self.y) in snk2.pixels:
-                    self.crash = True
-                if snk3.die == False and (self.x, self.y) in snk3.pixels:
-                    self.crash = True
-            if NumPlayer == "4":
-                if snk2.die == False and (self.x, self.y) in snk2.pixels:
-                    self.crash = True
-                if snk3.die == False and (self.x, self.y) in snk3.pixels:
-                    self.crash = True
-                if snk4.die == False and (self.x, self.y) in snk4.pixels:
-                    self.crash = True
 
+            # Checks if this hits to other snakes
+            snake_cnt = len(snakeArr)
+            for x in xrange(0, snake_cnt):
+                if x != index and snakeArr[x].die == False and (self.x, self.y) in snakeArr[x].pixels:
+                    self.crash = True
+            
             # Wraps the snake
             if self.x < 0:
-                self.x = width - 10
-            if self.x >= width:
+                self.x = WIDTH - 10
+            if self.x >= WIDTH:
                 self.x = 0
             if self.y <= 0:
-                self.y = height - 20
-            if self.y >= height - 10:
+                self.y = HEIGHT - 20
+            if self.y >= HEIGHT - 10:
                 self.y = 10
 
             self.pixels.insert(0, (self.x, self.y))
@@ -205,46 +236,34 @@ class snake:
                 pygame.draw.rect(screen, self.color, (x, y + 10, 10, 10), 1)
 
 
+# Class to represend food instance
 class food():
     # Initialize the position for where food is placed.
-    def __init__(self):
-        if IsServer:
-            self.x = random.randrange(20, width, 10)
-            self.y = random.randrange(20, height, 10)
-            self.sendToBackend()
-        else:
-            self.x = 0
-            self.y = 0
+    def __init__(self):        
+        self.x = random.randrange(20, WIDTH, 10)
+        self.y = random.randrange(20, HEIGHT, 10)
+        
     # Set position of food
     def setPosition(self, xpos, ypos):
         self.x = xpos
         self.y = ypos
+
     # Check if the snake hit himself.
     def hitCheck(self, snakePixels):
         if snakePixels[0][0] == self.x and snakePixels[0][1] == self.y:
             return True
+
     # After a snake eats, relocate the food to a random position.
     def relocate(self):
-        if IsServer:            
-            self.x = random.randrange(20, width, 10)
-            self.y = random.randrange(20, height, 10)
-            self.sendToBackend()
-    # Send food position to backend
-    def sendToBackend(self):
-        try:
-            with open(FIFO_W_PATH, 'w') as fifo:
-                write_str = 'FOOD:' + str(self.x) + ':' + str(self.y) + '\n';
-                print 'New Food position {0}'.format(write_str)
-                fifo.write(write_str)
-                fifo.flush()
-                fifo.close()
-        except Exception as e:
-            print '[python] Open fifo failed in food.'
+        self.x = random.randrange(20, WIDTH, 10)
+        self.y = random.randrange(20, HEIGHT, 10)
+    
     # Draw the food onto the screen.
     def draw(self):
         pygame.draw.rect(screen, (255, 0, 0), (self.x, self.y + 10, 10, 10), 0)
 
-# Observe status from backend via named pipe
+
+# Thread class to observe status from backend via fifo
 class StatusThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)        
@@ -252,262 +271,157 @@ class StatusThread(threading.Thread):
         # Checks for backend status
         try:
             with open(FIFO_R_PATH, 'r') as fifo:
-                data_string = "";
-                while running:                    
+                readstr = "";
+                while running:
                     # Non-blocking read.
-                    data = fifo.read(1)
-                    if data != '\n' and data != '':
-                        data_string += str(data)
+                    ch = fifo.read(1)
+                    if ch != '\n' and ch != '':
+                        readstr += str(ch)
                     else:                        
-                        self.proc(data_string)
-                        data_string = ""
+                        self.proc(readstr)
+                        readstr = ""
         except Exception as e:
-            print '[python] Open fifo failed in observe thread'            
+            print '[python] Process failed in Status Thread'            
 
     # Process packet function
     # packet structure : CODE:EXT_CODE:DATA
     def proc(self, packet = ''):
-        if packet == '':
+        if packet == '' or packet == '\n':
             return
-
-        global IsSync, Food_x, Food_y, key1, key2, key3, key4
+        
+        global IsSync, _pFood
 
         str_list = packet.split(':')
-        if len(str_list) == 1:
-            code = str_list[0]
-            if code == 'TIME':
-                print 'Time Sync Req'
+        if len(str_list) < 1:
+            return
+
+        code = str_list[0]
+        list_len = len(str_list)
+
+        # Time synchronization request
+        if list_len == 1 and code == 'TIME':
                 IsSync = True
-        elif len(str_list) == 3:
-            code = str_list[0]
-            ext = str_list[1]
-            data = str_list[2]
-            if data.endswith('TIME'):
-                data = data.translate(None, 'TIME')            
-            if code == 'KEY':
-                # Input key and time not synchronize so can get like KEY:253TIME so get only 3 chars
-                print '[python] key {0}'.format(data)
-                if ext == '1':    # Snake1's keycode
-                    key1 = int(data)
-                elif ext == '2':    # Snake2's keycode
-                    key2 = int(data)
-                elif ext == '3':    # Snake3's keycode
-                    key3 = int(data)                    
-                elif ext == '4':    # Snake4's keycode
-                    key4 = int(data)                    
-            elif code == 'FOOD':    # Relocate food
-                print '[python] food {0}:{1}'.format(ext, data)
-                Food_x = int(ext)
-                Food_y = int(data)
+        # Food state request
+        elif len(str_list) == 3 and code == 'FOOD':
+            # print '[python] Read packet : {0}'.format(packet)
+            food_x = int(str_list[1])
+            food_y = int(str_list[2])            
+            _pFood.setPosition(food_x, food_y)
 
+        # Snake state request
+        elif code == 'STATE':
+            # print '[python] Read packet : {0}'.format(packet)
+            
+            index = int(str_list[1]) - 1
+            if str_list[2] == 'die':
+                _pSnakeArr[index].die = True
+                _pSnakeArr[index].crash = True
+            elif str_list[2] == 'live':
+                _pSnakeArr[index].die = False
+                _pSnakeArr[index].xpos = int(str_list[3])
+                _pSnakeArr[index].ypos = int(str_list[4])
+                _pSnakeArr[index].hdir = int(str_list[5])
+                _pSnakeArr[index].vdir = int(str_list[6])
+                _pSnakeArr[index].length = int(str_list[7])
+                pixelLen = min(int(str_list[8]), _pSnakeArr[index].length)
+                _pSnakeArr[index].pixels = []
+                for i in xrange(0, pixelLen):
+                    _pSnakeArr[index].pixels.insert(0, (int(str_list[8 + i * 2]), int(str_list[9 + i * 2])))
+                
+        # Snake has disconnected
+        elif code == 'DISC':
+            index = int(str_list[1]) - 1            
+            _pSnakeArr[index].die = True
 
-startGame(width, height)
+# Thread class to report my state periodly
+class ReportThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)        
+    def run(self):        
+        while running:
+            mystate = 'STATE:{0}:'.format(_pSelfIndex)
+            mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
+            sendToBackend(mystate)
+            # foodstate = 'FOOD:' + getFoodState(_pFood) + '\n'
+            # sendToBackend(foodstate)
+            # clock.tick(speed)
+            clock.tick(100)
 
-if NumPlayer == "1":
-    onePlayer = True
-    snake1 = snake(player1_x, player1_y, player1_color)
-    inGame = ["snake1"]
-elif NumPlayer == "2":
-    twoPlayers = True
-    snake1 = snake(player1_x, player1_y, player1_color)
-    snake2 = snake(player2_x, player2_y, player2_color)
-    inGame = ["snake1", "snake2"]
-elif NumPlayer == "3":
-    threePlayers = True
-    snake1 = snake(player1_x, player1_y, player1_color)
-    snake2 = snake(player2_x, player2_y, player2_color)
-    snake3 = snake(player3_x, player3_y, player3_color)
-    inGame = ["snake1", "snake2", "snake3"]
-elif NumPlayer == "4":
-    fourPlayer = True
-    snake1 = snake(player1_x, player1_y, player1_color)
-    snake2 = snake(player2_x, player2_y, player2_color)
-    snake3 = snake(player3_x, player3_y, player3_color)
-    snake4 = snake(player4_x, player4_y, player4_color)
-    inGame = ["snake1", "snake2", "snake3", "snake4"]
+# Create food first for get postion from arguments
+_pFood = food()
 
-food = food()
+# Initialize pygame and environment
+startGame(_pFood)
 
-# Thread for watch status from backend
+# Create snake array
+createSnakeArray(_pSnakeArr, _pPlayerNum)
+    
+# Receive status info periodly from backend
 statThread = StatusThread()
 statThread.start()
 
+# Report my state periodly to backend
+# repThread = ReportThread()
+# repThread.start()
+
 while running:
+    # Wait until time synchronize request come in
     while not IsSync:
-        clock.tick(10)
+        clock.tick(100)
     IsSync = False
+
     screen.fill((0, 0, 0))
-    if onePlayer:
-        snake1.move()
-    if twoPlayers:
-        snake1.move(snake2)
-        snake2.move(snake1)
-        snake2.draw()
-    if threePlayers:
-        snake1.move(snake2, snake3)
-        snake2.move(snake1, snake3)
-        snake3.move(snake1, snake2)
-        snake2.draw()
-        snake3.draw()
-    if fourPlayer:
-        snake1.move(snake2, snake3, snake4)
-        snake2.move(snake1, snake3, snake4)
-        snake3.move(snake1, snake2, snake4)
-        snake4.move(snake1, snake2, snake3)
-        snake2.draw()
-        snake3.draw()
-        snake4.draw()
-    snake1.draw()
-    if not IsServer:
-        food.setPosition(Food_x, Food_y)
-    food.draw()
 
-    isHit = False
-    if food.hitCheck(snake1.pixels):
-        isHit = True
-        if onePlayer:
-            score = score + 10
-        snake1.length = snake1.length + 7
-    if twoPlayers and food.hitCheck(snake2.pixels):
-        isHit = True
-        snake2.length = snake2.length + 7
-    if threePlayers:
-        if food.hitCheck(snake3.pixels):
-            isHit = True
-            snake3.length = snake3.length + 7
-        if food.hitCheck(snake2.pixels):
-            isHit = True
-            snake2.length = snake2.length + 7
-    if fourPlayer:
-        if food.hitCheck(snake4.pixels):
-            isHit = True
-            snake4.length = snake4.length + 7
-        if food.hitCheck(snake3.pixels):
-            isHit = True
-            snake3.length = snake3.length + 7
-        if food.hitCheck(snake2.pixels):
-            isHit = True
-            snake2.length = snake2.length + 7
+    # move snake and food
+    moveAndDrawSnakes(_pSnakeArr)
+    _pFood.draw()
 
-    if isHit and IsServer:
-        food.relocate()
+    # Check if self hits to food
+    checkHitCondition(_pSnakeArr[_pSelfIndex - 1], _pFood)
 
-    if onePlayer:
-        text("Player 1: Red", 16, width / 5, 10, player1_color)
-    elif twoPlayers:
-        text("Player 1: Red", 16, width / 5, 10, player1_color)
-        text("Player 2: Green", 16, (width * 2) / 5, 10, player2_color)
-    elif threePlayers:
-        text("Player 1: Red", 16, width / 5, 10, player1_color)
-        text("Player 2: Green", 16, (width * 2) / 5, 10, player2_color)
-        text("Player 3: Blue", 16, (width * 3) / 5, 10, player3_color)
-    elif fourPlayer:
-        text("Player 1: Red", 16, width / 5, 10, player1_color)
-        text("Player 2: Green", 16, (width * 2) / 5, 10, player2_color)
-        text("Player 3: Blue", 16, (width * 3) / 5, 10, player3_color)
-        text("Player 4: White", 16, (width * 4) / 5, 10, player4_color)
+    # Display player string
+    dispPlayerString(_pPlayerNum)
 
     # Checks for user input and perform the relevant actions.
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        if event.type == pygame.KEYDOWN:
-            if event.key in control_keys:
-                try:
-                    with open(FIFO_W_PATH, 'w') as fifo:
-                        write_str = str(event.key) + '\n';
-                        fifo.write(write_str)
-                        fifo.flush()
-                        fifo.close()
-                except Exception as e:
-                    print '[python] Open fifo failed in key event.'
 
-                if SelfIndex == "1":
-                    key1 = event.key
-                elif SelfIndex == "2":
-                    key2 = event.key
-                elif SelfIndex == "3":
-                    key3 = event.key
-                elif SelfIndex == "4":
-                    key4 = event.key
-            
+        if event.type == pygame.KEYDOWN:
+            if event.key in _pKeyArr and _pSnakeArr[_pSelfIndex - 1].die == False:
+                _pSnakeArr[_pSelfIndex - 1].events(event.key)
+                mystate = 'STATE:{0}:'.format(_pSelfIndex)
+                mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
+                sendToBackend(mystate)
+
             if event.key == pygame.K_ESCAPE:
                 running = False
-                # sys.exit()
+
             clock.tick(speed)
-
-    if onePlayer:
-        snake1.events(key1)
-    if twoPlayers:        
-        snake1.events(key1)
-        snake2.events(key2)    
-    if threePlayers:
-        snake1.events(key1)
-        snake2.events(key2)
-        snake3.events(key3)
-    if fourPlayer:
-        snake1.events(key1)
-        snake2.events(key2)
-        snake3.events(key3)
-        snake4.events(key4)
-
+    
     # Updates the display at the end.
     pygame.display.flip()
     clock.tick(speed)
 
-    if onePlayer:
-        inGame = ["snake1"]
-        if snake1.crash:
-            text("Game Over, Score: " + str(score), 40, -1, -1, (255, 255, 255))
-    if twoPlayers:
-        inGame = ["snake1", "snake2"]
-        if snake1.crash:
-            text("Winner: Player 2! ", 40, -1, -1, player2_color)
-            inGame.remove("snake1")
-        if snake2.crash:
-            text("Winner: Player 1! ", 40, -1, -1, player1_color)
-            inGame.remove("snake2")
-    if threePlayers:
-        inGame = ["snake1", "snake2", "snake3"]
-        if snake1.crash:
-            snake1.die = True
-            inGame.remove("snake1")
-        if snake2.crash:
-            snake2.die = True
-            inGame.remove("snake2")
-        if snake3.crash:
-            snake3.die = True
-            inGame.remove("snake3")
-    if fourPlayer:
-        inGame = ["snake1", "snake2", "snake3", "snake4"]
-        if snake1.crash:
-            snake1.die = True
-            inGame.remove("snake1")
-        if snake2.crash:
-            snake2.die = True
-            inGame.remove("snake2")
-        if snake3.crash:
-            snake3.die = True
-            inGame.remove("snake3")
-        if snake4.crash:
-            snake4.die = True
-            inGame.remove("snake4")
+    if _pSnakeArr[_pSelfIndex - 1].crash:
+        _pSnakeArr[x].die = True
+        mystate = 'STATE:{0}:'.format(_pSelfIndex)
+        mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
+        sendToBackend(mystate)
 
+    live_cnt = 0
+    live_index = -1
+
+    for x in xrange(0, _pPlayerNum):
+        if _pSnakeArr[x].die == False:            
+            live_cnt += 1
+            live_index = x
+    
     # Logic to check who wins in a multiplayer game
-    while (snake1.crash or (twoPlayers and snake2.crash) or (threePlayers and (snake3.crash or snake2.crash)) or (
-            fourPlayer and (snake4.crash or snake3.crash or snake2.crash))) and (len(inGame) == 1) and running:
-        if threePlayers or fourPlayer:
-            if inGame == ["snake3"]:
-                text("Winner: Player 3! ", 40, -1, -1, player3_color)
-            elif inGame == ["snake4"]:
-                text("Winner: Player 4! ", 40, -1, -1, player4_color)
-            elif inGame == ["snake1"]:
-                text("Winner: Player 1! ", 40, -1, -1, player1_color)
-            elif inGame == ["snake2"]:
-                text("Winner: Player 2! ", 40, -1, -1, player2_color)
 
-        text("Press X to exit", 30, -1, height / 2 + 30, (255, 255, 255))
-        # text("ESC to return to main menu", 20, -1, height / 2 + 50, (255, 255, 255))
+    while (live_cnt == 1 and _pPlayerNum != 1 and running):
+        text(_pWinStrArr[live_index], 40, -1, -1, _pColorArr[live_index])        
+        text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
         
         pygame.display.flip()
         clock.tick(50)
@@ -515,29 +429,33 @@ while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-                snake.crash = False
-                # sys.exit()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_x:
                     running = False
-                    # score = 0
-                    # newHighscore = False
-                    # food.__init__()
-                    # if onePlayer:
-                    #     snake1.__init__(player1_x, player1_y, player1_color)
-                    # if twoPlayers:
-                    #     snake1.__init__(player1_x, player1_y, player1_color)
-                    #     snake2.__init__(player1_x, player2_y, player2_color)
-                    # if threePlayers:
-                    #     snake1.__init__(player1_x, player1_y, player1_color)
-                    #     snake2.__init__(player2_x, player2_y, player2_color)
-                    #     snake3.__init__(player3_x, player3_y, player3_color)
-                    # if fourPlayer:
-                    #     snake1.__init__(player1_x, player1_y, player1_color)
-                    #     snake2.__init__(player2_x, player2_y, player2_color)
-                    #     snake3.__init__(player3_x, player3_y, player3_color)
-                    #     snake4.__init__(player4_x, player4_y, player4_color)
+
+    while (live_cnt == 0 and _pPlayerNum == 1 and running):
+        text("Game Over, Score: " + str(score), 40, -1, -1, (255, 255, 255))        
+        text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
+        
+        pygame.display.flip()
+        clock.tick(50)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_x:
+                    running = False
 
 # Wait for status thread exit
+
 statThread.join()
+
+# Wait for report thread exit
+
+# repThread.join()
+
+# Send exit to backend 
+sendToBackend('EXIT\n')
+
 sys.exit()

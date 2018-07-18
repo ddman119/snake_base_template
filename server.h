@@ -7,7 +7,7 @@ public:
 	server(int serverSock, struct sockaddr_in serverAddr);
 	bool startServer();
 	bool waitThread();
-	void createSnakeGame();
+	void createSnakeGame(POSITION pos);
 
 public:
 	int m_nServerSock;

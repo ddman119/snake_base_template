@@ -34,10 +34,20 @@ int main(int argc , char *argv[])
         }
         server *_pServer = new server(serverSock, serverAddr);
         if (!_pServer->startServer())
-            exit(EXIT_FAILURE);
-        
+            exit(EXIT_FAILURE);        
         _pServer->waitThread();
-        kill(_pServer->m_PythonPid, SIGKILL);
+
+        if (_pServer->m_PythonPid > 0)
+        {
+            int status = 0;
+            wait(&status);
+        }
+        /*if (_pServer->m_PythonPid == 0)
+        {
+            exit(0);
+        } else {*/
+            
+        //}
     }
     else    // Act for client
     {
@@ -48,7 +58,15 @@ int main(int argc , char *argv[])
         if (!_pClient->startClient())
             exit(EXIT_FAILURE);        
         _pClient->waitThread();
-        kill(_pClient->m_PythonPid, SIGKILL);
+        // if (_pClient->m_PythonPid == 0)
+        // {
+        //     exit(0);
+        // } else
+        // {
+            int status = 0;
+            wait(&status);
+        // }
+        // kill(_pClient->m_PythonPid, SIGKILL);
     }
     
     return 0;
@@ -136,6 +154,10 @@ int client_connect(char* serverAddr, int &sock){
     if (flag == -1)
     {
         printf("Player count is maximum. Can not play\n");
+        return -1;
+    } else if (flag == -2)
+    {
+        printf("Game already start. Can not play\n");
         return -1;
     } else
     {

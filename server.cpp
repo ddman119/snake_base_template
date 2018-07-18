@@ -7,14 +7,19 @@ void *server_time_thread_function(void *arg);
 
 void serverMessageRequest(int exceptId, char *msg);
 void serverLoginRequest(int sock, int flag);
-void serverStartGameRequest();
+void serverStartGameRequest(POSITION pos);
 void serverEndGameRequest();
 void serverTimeSyncRequest();
-void serverBackendTimeRequest();
-
-void serverKeyRequest(int exceptId, const char *keystr);
-void serverBackendKeyRequest(const char *keystr);
+void serverStateRequest(int exceptId, const char *keystr);
+void serverPlayerDisconRequest(int id);
 void serverFoodRequest(const char* foodstr);
+
+void serverBackendPlayerDisconRequest(int id);
+void serverBackendTimeRequest();
+void serverBackendStateRequest(const char *keystr);
+void serverBackendFoodRequest(char *foodstr);
+
+void relocateFood(POSITION &pos);
 
 server *_pServer;
 
@@ -31,6 +36,8 @@ bool server::startServer()
 	m_bGameStart = false;
 	m_nPlayerCount = 1;
 	m_PythonPid = 0;
+
+    res = pthread_mutex_init(&m_Mutex, NULL);
 
 	res = pthread_create(&m_pMainThread,NULL, server_main_thread_function,NULL);
     if(res != 0)
@@ -56,31 +63,35 @@ bool server::waitThread()
 	res = pthread_join(m_pMainThread, &thread_result);
     if(res != 0)
     {
-        perror("Main thread join failed");
-        return false;
+        perror("Main thread join failed");        
     }
+
     res = pthread_join(m_pKeyThread, &thread_result);
     if(res != 0)
     {
-        perror("Key thread join failed");
-        return false;
+        perror("Key thread join failed");        
     }
+
+    pthread_cancel(m_pTimeThread);
     res = pthread_join(m_pTimeThread, &thread_result);
     if(res != 0)
     {
-        perror("Time thread join failed");
-        return false;
-    }
+        perror("Time thread join failed");        
+    }    
+
+    pthread_cancel(m_pMsgThread);
     res = pthread_join(m_pMsgThread, &thread_result);
     if(res != 0)
     {
         perror("Message thread join failed");
-        return false;
-    }    
+    }
+
+    pthread_mutex_destroy(&m_Mutex);
+
     return true;
 }
 
-void server::createSnakeGame()
+void server::createSnakeGame(POSITION pos)
 {
 	char cmd[MAX_LEN];
 	
@@ -108,12 +119,22 @@ void server::createSnakeGame()
         return;
     }
 
-    sprintf(cmd, "python snake.py %d %d Server", m_nPlayerCount, m_nId);
+    m_bGameStart = true;
+    sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, pos.xpos, pos.ypos);
+    
     m_PythonPid = fork();
     if (m_PythonPid == 0)
     {
         system(cmd);
+        exit(0);
     }
+    // } else 
+    // {
+    //     int status = 0;
+    //     int options = 0;        
+    //     waitpid(m_PythonPid, &status, options);
+    // }
+
 }
 
 void *server_main_thread_function(void *arg)
@@ -134,7 +155,7 @@ void *server_main_thread_function(void *arg)
     
     //accept the incoming connection
     int addrlen = sizeof(_pServer->m_ServerAddr);
-    puts("Waiting for connections ...");
+    puts("Waiting for incoming connections ...");
 
     while(_pServer->m_bIsRunning)
     {
@@ -162,11 +183,15 @@ void *server_main_thread_function(void *arg)
 
         //wait for an activity on one of the sockets , timeout is NULL ,
         //so wait indefinitely
-        activity = select( max_sd + 1 , &readfds , NULL , NULL , NULL);
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
 
-        if ((activity < 0) && (errno!=EINTR))
+        activity = select( max_sd + 1 , &readfds , NULL , NULL , &timeout);
+
+        if ((activity < 0) && (errno != EINTR))
         {
-            printf("select error");
+            continue;            
         }
 
         //If something happened on the master socket ,
@@ -190,7 +215,7 @@ void *server_main_thread_function(void *arg)
                 if( _pServer->m_ClientSockArr[i] == 0 )
                 {
                     _pServer->m_ClientSockArr[i] = new_socket;
-                    printf("Player #%d has joined.\n" , i+1);
+                    printf("Player %d has joined.\n" , i + 1);
 
                     break;
                 }
@@ -200,6 +225,10 @@ void *server_main_thread_function(void *arg)
             {
                 printf("New player from %s can not play because of maximum player count\n", inet_ntoa(_pServer->m_ServerAddr.sin_addr));
                 serverLoginRequest(new_socket, -1);
+            } else if (_pServer->m_bGameStart)
+            {
+                printf("New player from %s can not play because game already start\n", inet_ntoa(_pServer->m_ServerAddr.sin_addr));
+                serverLoginRequest(new_socket, -2);
             } else
             {
             	_pServer->m_nPlayerCount ++;
@@ -223,12 +252,18 @@ void *server_main_thread_function(void *arg)
                     getpeername(sd, (struct sockaddr*)&_pServer->m_ServerAddr, (socklen_t*)&addrlen);
 					_pServer->m_nPlayerCount--;
 
-					printf("Player #%d, Host disconnected , ip %s , port %d. Current player count is %d \n" , i + 1,
+					printf("Player %d, Host disconnected , ip %s , port %d. Current player count is %d \n" , i + 1,
                           inet_ntoa(_pServer->m_ServerAddr.sin_addr) , ntohs(_pServer->m_ServerAddr.sin_port), _pServer->m_nPlayerCount);
 
                     //Close the socket and mark as 0 in list for reuse
                     close( sd );
                     _pServer->m_ClientSockArr[i] = 0;
+                    
+                    if (_pServer->m_bGameStart)
+                    {
+                        serverPlayerDisconRequest(i + 1);
+                        serverBackendPlayerDisconRequest(i + 1);
+                    }
                 }
 
                 //Echo back the message that came in
@@ -243,18 +278,26 @@ void *server_main_thread_function(void *arg)
                         printf("[backend] %s", msg);
                     	serverMessageRequest(i + 1, msg);
                         free(msg);
-                    } else if (msg_code == USER_KEY)
+                    } else if (msg_code == STATE)
                     {
-                    	char *keystr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
-	                    memcpy(keystr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
-	                    serverBackendKeyRequest(keystr);
-	                    serverKeyRequest(i + 1, keystr);
-	                    free(keystr);
+                    	char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
+	                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
+	                    serverBackendStateRequest(statestr);
+	                    serverStateRequest(i + 1, statestr);
+	                    free(statestr);
+                    } else if (msg_code == FOOD)
+                    {
+                        POSITION pos;
+                        relocateFood(pos);
+                        char tmp[32];
+                        sprintf(tmp, "FOOD:%d:%d\n", pos.xpos, pos.ypos);
+                        serverFoodRequest(tmp);
+                        serverBackendFoodRequest(tmp);
                     }
                 }
             }
         }
-    }
+    }    
 }
 
 void *server_key_thread_function(void *arg)
@@ -275,31 +318,38 @@ void *server_key_thread_function(void *arg)
     		{
     			buf += ch;
     		} else {
-    			const char *fifostr = buf.c_str();
+    			const char *fifostr = buf.c_str();                
+    			if (strncmp(fifostr, "FOODHIT", 7) == 0)
+    			{	// Food hit to snake. Relocate it                    
+                    POSITION pos;
+                    relocateFood(pos);
+                    printf("[backend] Get food hit request from python. relocate it x=%d y=%d\n", pos.xpos, pos.ypos);
+                    char tmp[32];
+                    sprintf(tmp, "FOOD:%d:%d\n", pos.xpos, pos.ypos);
+                    serverBackendFoodRequest(tmp);
+        			serverFoodRequest(tmp);
+    			} else if (strncmp(fifostr, "EXIT", 4) == 0)
+                {   // Python game end. Also all clients must end
+                    serverEndGameRequest();
+                    _pServer->m_bIsRunning = false;
+                } else if (strncmp(fifostr, "STATE", 5) == 0)
+                {
+                    serverStateRequest(1, fifostr);
+                }
 
-    			if (strncmp(fifostr, "FOOD", 4) == 0)
-    			{	// Food hit to snake. Relocate it
-                    printf("[backend]%s\n", fifostr);
-        			serverFoodRequest(fifostr);
-    			} else
-    			{	// User press key. tell others
-    				char *tmp = (char *)calloc(strlen(fifostr) + 8, sizeof(char));
-	    			sprintf(tmp, "KEY:1:%s", fifostr);
-	                serverKeyRequest(1, tmp);
-    			}
     			buf = "";
     		}
     	}
-    }
+    }  
 }
 
 void *server_time_thread_function(void *arg)
 {
     while (_pServer->m_bIsRunning)
-    {
-    	serverTimeSyncRequest();
-    	serverBackendTimeRequest();
-    	usleep(1500);	// 1.5ms interval
+    {    	
+    	usleep(40000);	// 1.5ms interval
+        serverTimeSyncRequest();
+        serverBackendTimeRequest();
     }
 }
 
@@ -315,10 +365,12 @@ void *server_msg_thread_function(void *arg)
         		if (!_pServer->m_bGameStart && strncmp(msg + 3, "start", 5) == 0)		// start game
         		{        			
         			_pServer->m_nId = 1;
-        			_pServer->createSnakeGame();
-        			serverStartGameRequest();
-        		} else if (_pServer->m_bGameStart && strncmp(msg + 3, "exit", 4) == 0)		// end game
-        		{
+                    POSITION pos;
+                    relocateFood(pos);        			
+        			serverStartGameRequest(pos);
+                    _pServer->createSnakeGame(pos);
+        		} else if (strncmp(msg + 3, "exit", 4) == 0)		// end game
+        		{                    
         			serverEndGameRequest();
         			_pServer->m_bIsRunning = false;
         		}
@@ -354,7 +406,7 @@ void serverMessageRequest(int exceptId, char *msg)
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = USER_MSG;
-    strcpy(packet + 8, msg);
+    strncpy(packet + 8, msg, strlen(msg));
 
 	for (int i = 1; i < MAX_PLAYER; ++i)
     {
@@ -369,14 +421,16 @@ void serverMessageRequest(int exceptId, char *msg)
     free(packet);
 }
 
-void serverStartGameRequest()
+void serverStartGameRequest(POSITION pos)
 {
-	int packet_len = (1 + 1 + 1 + 2) * sizeof(int);
+	int packet_len = (1 + 1 + 1 + 1 + 2) * sizeof(int);
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = START;
     *(int *)(packet + 8) = _pServer->m_nPlayerCount;
-    
+    *(int *)(packet + 16) = pos.xpos;
+    *(int *)(packet + 20) = pos.ypos;
+
 	for (int i = 1; i < MAX_PLAYER; ++i)
     {
         if (_pServer->m_ClientSockArr[i] > 0)
@@ -411,14 +465,14 @@ void serverEndGameRequest()
     free(packet);		
 }
 
-// Send pressed key to client
-void serverKeyRequest(int exceptId, const char *keystr)
+// Send player state to client
+void serverStateRequest(int exceptId, const char *statestr)
 {
-    int packet_len = (1 + 1) * sizeof(int) + strlen(keystr);
+    int packet_len = (1 + 1) * sizeof(int) + strlen(statestr);
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
-    *(int *)(packet + 4) = USER_KEY;
-    strcpy(packet + 8, keystr);
+    *(int *)(packet + 4) = STATE;
+    strncpy(packet + 8, statestr, strlen(statestr));
 
     for (int i = 1; i < MAX_PLAYER; ++i)
 	{
@@ -431,19 +485,6 @@ void serverKeyRequest(int exceptId, const char *keystr)
     }
 
     free(packet);
-}
-
-// Send others key info to python
-void serverBackendKeyRequest(const char *keystr)
-{	
-    int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
-    if (fd == -1)
-    {
-        printf("[backend] Open fifo failed\n");
-        return;
-    }
-    write(fd, keystr, strlen(keystr));
-    close(fd);
 }
 
 void serverTimeSyncRequest()
@@ -472,19 +513,57 @@ void serverFoodRequest(const char * foodstr)
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = FOOD;
-    memcpy(packet + 8, foodstr, strlen(foodstr));
-    
+    strncpy(packet + 8, foodstr, strlen(foodstr));
+        
 	for (int i = 1; i < MAX_PLAYER; ++i)
-	{
+	{    
 	    if (_pServer->m_ClientSockArr[i] > 0)
-	    {
-	    	pthread_mutex_lock(&_pServer->m_Mutex);
-		    send(_pServer->m_ClientSockArr[i], packet, packet_len, 0);   
-		    pthread_mutex_unlock(&_pServer->m_Mutex);	        
+	    {            
+ 	    	pthread_mutex_lock(&_pServer->m_Mutex);
+            printf("[backend] food packet len %d msg_code=%d\n", packet_len, *(int*)(packet + 4));
+		    send(_pServer->m_ClientSockArr[i], packet, packet_len, 0);
+            printf("[backend] food packet send\n");
+		    pthread_mutex_unlock(&_pServer->m_Mutex);
 	    }
     }
 
     free(packet);
+}
+
+void serverPlayerDisconRequest(int id)
+{
+    int packet_len = (1 + 1 + 1) * sizeof(int);
+    char *packet = (char *)calloc(packet_len, sizeof(char));
+    *(int *)packet = packet_len;
+    *(int *)(packet + 4) = DISCON;
+    *(int *)(packet + 8) = id;    
+    
+    for (int i = 1; i < MAX_PLAYER; ++i)
+    {
+        if (_pServer->m_ClientSockArr[i] > 0)
+        {
+            pthread_mutex_lock(&_pServer->m_Mutex);
+            send(_pServer->m_ClientSockArr[i], packet, packet_len, 0);   
+            pthread_mutex_unlock(&_pServer->m_Mutex);           
+        }
+    }
+
+    free(packet);
+}
+    
+void serverBackendPlayerDisconRequest(int id)
+{
+    int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
+    if (fd == -1)
+    {
+        printf("[backend] Open fifo failed in disconnect function\n");
+        return;
+    }
+    char tmp[12];
+    sprintf(tmp, "DISC:%d\n", id);
+    
+    write(fd, tmp, 12);
+    close(fd);
 }
 
 void serverBackendTimeRequest()
@@ -492,9 +571,57 @@ void serverBackendTimeRequest()
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
-        printf("[backend] Open fifo failed\n");
+        printf("[backend] Open fifo failed in time function\n");
         return;
     }    
     write(fd, "TIME\n", 5);
     close(fd);
+}
+
+// Send others key info to python
+void serverBackendStateRequest(const char *statestr)
+{   
+    std::string buf(statestr);
+    buf = buf + '\n';
+    int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
+    if (fd == -1)
+    {
+        printf("[backend] Open fifo failed in key function\n");
+        return;
+    }
+    write(fd, buf.c_str(), strlen(buf.c_str()));    
+    close(fd);
+}
+
+void serverBackendFoodRequest(char *foodstr)
+{
+    std::string buf(foodstr);
+    buf = buf + '\n';
+    int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
+    if (fd == -1)
+    {
+        printf("[backend] Open fifo failed in key function\n");
+        return;
+    }    
+    write(fd, buf.c_str(), strlen(buf.c_str()));
+    
+    close(fd);
+}
+
+void relocateFood(POSITION &pos)
+{    
+    
+    int x = 0, y = 0;
+    while (x == 0 || y == 0)
+    {
+        time_t cur = time(NULL);
+        srand(cur);
+        x = rand() % DISP_WIDTH;
+        y = rand() % DISP_HEIGHT;
+        x = x - x % 10;
+        y = y - y % 10;
+    }
+    
+    pos.xpos = x;
+    pos.ypos = y;
 }

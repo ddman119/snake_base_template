@@ -7,7 +7,7 @@ public:
 	client(int sock);
 	bool startClient();
 	bool waitThread();
-	void createSnakeGame();
+	void createSnakeGame(int food_x, int food_y);
 
 public:
 	int m_nClientSock;	

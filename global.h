@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
 
@@ -35,13 +36,15 @@
 #define USER_MSG 		0x02
 #define START			0x03
 #define END 			0x04
-#define USER_KEY		0x05
+#define STATE			0x05
 #define TIME_SYNC		0x06
 #define FOOD			0x07
+#define DISCON			0x08
 
 struct POSITION
 {
 	int xpos;
 	int ypos;
 };
+
 #endif

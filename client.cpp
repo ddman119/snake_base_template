@@ -6,10 +6,13 @@ void *client_key_thread_function(void *arg);
 void *client_time_thread_function(void *arg);
 
 void clientMessageRequest(int sock, const char *msg);
-void clientKeyRequest(int sock, const char *keystr);
-void clientBackendKeyRequest(const char *keystr);
+void clientStateRequest(int sock, const char *keystr);
+void clientFoodRequest(int sock);
+
+void clientBackendStateRequest(const char *keystr);
 void clientBackendTimeRequest();
 void clientBackendFoodRequest(char *foodstr);
+void clientBackendPlayerDisconRequest(int id);
 
 client *_pClient;
 
@@ -25,6 +28,9 @@ bool client::startClient()
 	int res;
     m_bIsRunning = true;
     m_nPlayerCount = 0;
+
+    res = pthread_mutex_init(&m_Mutex, NULL);
+
 	res = pthread_create(&m_pMainThread,NULL, client_main_thread_function,NULL);
     if(res != 0)
     {
@@ -47,33 +53,37 @@ bool client::waitThread()
 	int res;
     void *thread_result;
 	res = pthread_join(m_pMainThread, &thread_result);
-    if(res != 0)
+    if (res != 0)
     {
-        perror("Main thread join failed");
-        return false;
+        perror("Main thread join failed");        
     }
+    
     res = pthread_join(m_pKeyThread, &thread_result);
-    if(res != 0)
+    if (res != 0)
     {
-        perror("Key thread join failed");
-        return false;
+        perror("Key thread join failed");        
     }
-    res = pthread_join(m_pTimeThread, &thread_result);
-    if(res != 0)
-    {
-        perror("Time thread join failed");
-        return false;
-    }
+
+    // res = pthread_join(m_pTimeThread, &thread_result);
+    // if (res != 0)
+    // {
+    //     perror("Time thread join failed");        
+    // }
+
+    pthread_cancel(m_pMsgThread);
+
     res = pthread_join(m_pMsgThread, &thread_result);
-    if(res != 0)
+    if (res != 0)
     {
-        perror("Message thread join failed");
-        return false;
+        perror("Message thread join failed");        
     }
+
+    res = pthread_mutex_destroy(&m_Mutex);
+
     return true;
 }
 
-void client::createSnakeGame()
+void client::createSnakeGame(int food_x, int food_y)
 {
     char cmd[MAX_LEN];
     int res;
@@ -92,19 +102,28 @@ void client::createSnakeGame()
         return;
     }
     
-    res = pthread_create(&m_pTimeThread,NULL, client_time_thread_function,NULL);
-    if(res != 0)
-    {
-        perror("Time thread creation failed");
-        return;
-    }
+    // res = pthread_create(&m_pTimeThread,NULL, client_time_thread_function,NULL);
+    // if(res != 0)
+    // {
+    //     perror("Time thread creation failed");
+    //     return;
+    // }
 
-    sprintf(cmd, "python snake.py %d %d Client", m_nPlayerCount, m_nId);
+    sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, food_x, food_y);   
+    
     m_PythonPid = fork();
     if (m_PythonPid == 0)
     {
         system(cmd);
+        exit(0);
     }
+   
+    // } else 
+    // {
+    //     int status = 0;
+    //     int options = 0;
+    //     waitpid(m_PythonPid, &status, options);
+    // }
 }
 
 void *client_main_thread_function(void *arg)
@@ -125,59 +144,74 @@ void *client_main_thread_function(void *arg)
         //add master socket to set
         FD_SET(_pClient->m_nClientSock, &readfds);        
 
-        //wait for an activity on one of the sockets , timeout is NULL ,
-        //so wait indefinitely
-        activity = select( _pClient->m_nClientSock + 1 , &readfds , NULL , NULL , NULL);
+        //wait for an activity on one of the sockets , timeout is 1s        
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        activity = select( _pClient->m_nClientSock + 1 , &readfds , NULL , NULL , &timeout);
 
         if ((activity < 0) && (errno != EINTR))
         {
             printf("select error");
+            continue;
         }
 
         //If something happened on the master socket ,
         //then its an incoming connection
         if (FD_ISSET(_pClient->m_nClientSock, &readfds))
-        {            
+        {
             if ((valread = read( _pClient->m_nClientSock , buffer, MAX_BUFFER)) == 0)
             {
                 close(_pClient->m_nClientSock);
                 _pClient->m_bIsRunning = false;
-            }         
+            }
             else
-            {
+            {                
                 int packet_len = *(int *)buffer;
-                int msg_code = *(int *)(buffer + sizeof(int));
+                int msg_code = *(int *)(buffer + sizeof(int));               
+
                 if (msg_code == USER_MSG)
                 {
                     char *msg = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(msg, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
-                    printf("[backend] %s\n", msg);
+                    printf("[backend] %s", msg);
                     free(msg);
-                } else if (msg_code == USER_KEY) {
-                    char *keystr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
-                    memcpy(keystr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
-                    clientBackendKeyRequest(keystr);
-                    free(keystr);
+                } else if (msg_code == STATE) {
+                    char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
+                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
+                    clientBackendStateRequest(statestr);
+                    free(statestr);
                 } else if (msg_code == TIME_SYNC) {
                     clientBackendTimeRequest();
                 } else if (msg_code == FOOD) {                    
                     char *foodstr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(foodstr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
-                    printf("[client] Get Food pos %s\n", foodstr);
+                    printf("[client] Get Food pos %s", foodstr);
                     clientBackendFoodRequest(foodstr);
                     free(foodstr);                    
-                } else if (msg_code = START)
+                } else if (msg_code == START)
                 {
                     int player_count = *(int *)(buffer + sizeof(int) * 2);
-                    int id = *(int *)(buffer + sizeof(int) * 3);                    
+                    int id = *(int *)(buffer + sizeof(int) * 3);
+                    int food_x = *(int *)(buffer + sizeof(int) * 4);
+                    int food_y = *(int *)(buffer + sizeof(int) * 5);
                     _pClient->m_nId = id;
                     _pClient->m_nPlayerCount = player_count;
-                    printf("[backend] Get id %d from server. Start snake game with %d player\n", id, player_count);
-                    _pClient->createSnakeGame();
+                    printf("[backend] Get id %d from server. Start snake game with %d player", id, player_count);
+                    _pClient->createSnakeGame(food_x, food_y);
+                } else if (msg_code == END)
+                {
+                    _pClient->m_bIsRunning = false;
+                } else if (msg_code == DISCON)
+                {
+                    int id = *(int *)(buffer + sizeof(int) * 2);
+                    clientBackendPlayerDisconRequest(id);
                 }
-            }   
+            }
         }        
     }
+    printf("[backend] escape from main thread\n");
 }
 
 void *client_key_thread_function(void *arg)
@@ -185,7 +219,7 @@ void *client_key_thread_function(void *arg)
     int fd = open(_pClient->m_strFIFO_R_Path, O_RDONLY);
     if (fd == -1)
     {
-        printf("[backend] Open named pipe failed\n");
+        printf("[backend] Open fifo failed in key function\n");
         return NULL;
     }
     char ch;
@@ -198,9 +232,18 @@ void *client_key_thread_function(void *arg)
             {
                 buf += ch;
             } else {
-                char *tmp = (char *)calloc(strlen(buf.c_str()) + 8, sizeof(char));
-                sprintf(tmp, "KEY:%d:%s", _pClient->m_nId, buf.c_str());                
-                clientKeyRequest(_pClient->m_nClientSock, tmp);
+                const char *fifostr = buf.c_str();                
+
+                if (strncmp(fifostr, "EXIT", 4) == 0)
+                {   // Python game end. exit backend
+                    _pClient->m_bIsRunning = false;
+                } else if (strncmp(fifostr, "FOODHIT", 7) == 0)
+                {
+                    clientFoodRequest(_pClient->m_nClientSock);
+                } else if (strncmp(fifostr, "STATE", 5) == 0)
+                {                    
+                    clientStateRequest(_pClient->m_nClientSock, fifostr);
+                }                
                 buf = "";
             }
         }
@@ -225,7 +268,7 @@ void *client_msg_thread_function(void *arg)
             if (strncmp(msg, "-m", 2) == 0)     // message command
             {
                 clientMessageRequest(_pClient->m_nClientSock, msg + 2);
-            }            
+            }
         }
     }
 }
@@ -237,7 +280,7 @@ void clientMessageRequest(int sock, const char *msg)
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = USER_MSG;
-    strcpy(packet + 8, msg);
+    strncpy(packet + 8, msg, strlen(msg));
     pthread_mutex_lock(&_pClient->m_Mutex);
     send(sock, packet, packet_len, 0);   
     pthread_mutex_unlock(&_pClient->m_Mutex);
@@ -245,13 +288,26 @@ void clientMessageRequest(int sock, const char *msg)
 }
 
 // Send pressed key to server
-void clientKeyRequest(int sock, const char *keystr)
+void clientStateRequest(int sock, const char *statestr)
 {
-    int packet_len = (1 + 1) * sizeof(int) + strlen(keystr);
+    int packet_len = (1 + 1) * sizeof(int) + strlen(statestr);
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
-    *(int *)(packet + 4) = USER_KEY;
-    strcpy(packet + 8, keystr);
+    *(int *)(packet + 4) = STATE;
+    strncpy(packet + 8, statestr, strlen(statestr));
+    pthread_mutex_lock(&_pClient->m_Mutex);
+    send(sock, packet, packet_len, 0);
+    pthread_mutex_unlock(&_pClient->m_Mutex);
+    free(packet);
+}
+
+// Send food relocate request to server
+void clientFoodRequest(int sock)
+{
+    int packet_len = (1 + 1) * sizeof(int);
+    char *packet = (char *)calloc(packet_len, sizeof(char));
+    *(int *)packet = packet_len;
+    *(int *)(packet + 4) = FOOD;
     pthread_mutex_lock(&_pClient->m_Mutex);
     send(sock, packet, packet_len, 0);
     pthread_mutex_unlock(&_pClient->m_Mutex);
@@ -259,15 +315,17 @@ void clientKeyRequest(int sock, const char *keystr)
 }
 
 // Send others key info to python
-void clientBackendKeyRequest(const char *keystr)
+void clientBackendStateRequest(const char *statestr)
 {
+    std::string buf(statestr);
+    buf = buf + '\n';
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
-        printf("[backend] Open fifo failed\n");
+        printf("[backend] Open fifo failed in key request\n");
         return;
     }
-    write(fd, keystr, strlen(keystr));
+    write(fd, buf.c_str(), strlen(buf.c_str()));
     close(fd);
 }
 
@@ -276,7 +334,7 @@ void clientBackendTimeRequest()
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
-        printf("[backend] Open fifo failed\n");
+        printf("[backend] Open fifo %s failed in time request\n", _pClient->m_strFIFO_W_Path);
         return;
     }
     write(fd, "TIME\n", 5);
@@ -285,13 +343,29 @@ void clientBackendTimeRequest()
 
 void clientBackendFoodRequest(char *foodstr)
 {
+    std::string buf(foodstr);
+    buf = buf + '\n';
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
-        printf("[backend] Open fifo failed\n");
+        printf("[backend] Open fifo failed in food request\n");
         return;
     }
     
-    write(fd, foodstr, strlen(foodstr));
+    write(fd, buf.c_str(), strlen(buf.c_str()));
     close(fd);  
+}
+
+void clientBackendPlayerDisconRequest(int id)
+{
+    int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
+    if (fd == -1)
+    {
+        printf("[backend] Open fifo failed in disconnect request\n");
+        return;
+    }
+    char tmp[12];
+    sprintf(tmp, "DISC:%d\n", id);
+    write(fd, tmp, 12);
+    close(fd);
 }
