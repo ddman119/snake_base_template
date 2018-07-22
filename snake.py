@@ -7,11 +7,7 @@ import random
 import string
 import sys
 import threading
-from multiprocessing import Process, Lock
-
-######################
-#   Game constants   #
-######################
+from multiprocessing import Process, Lock, Queue
 
 # Screen Size (The default is set to smallest screen resolution for PCs)
 # TODO: Change this to detect the user's current screen resolution and use those dimensions for fullscreen.
@@ -60,6 +56,9 @@ speed = 30
 
 # Check if the game is running
 running = True
+
+# Queue to store received data
+_pSnakeQueue = Queue()
 
 # Initialize pygame and env
 def startGame(food):
@@ -128,10 +127,12 @@ def getSnakeState(snake):
     else:
         state = 'live'
         state = state + ':' + str(snake.x) + ':' + str(snake.y) + ':' + str(snake.hdir) + ':' + str(snake.vdir)
-        state = state + ':' + str(snake.length) + ':' + str(len(snake.pixels))
-        for index in xrange(len(snake.pixels) - 1, -1, -1):
-            state = state + ':' + str(snake.pixels[index][0]) + ':' + str(snake.pixels[index][1])
+        pixelLen = len(snake.pixels)
+        state = state + ':' + str(snake.length) + ':' + str(pixelLen)
 
+        for index in xrange(0, pixelLen):
+            state = state + ':' + str(snake.pixels[index][0]) + ':' + str(snake.pixels[index][1])
+    print '[python] Snake state : {0}'.format(state)    
     return state
 
 # Get state of food
@@ -169,18 +170,22 @@ def checkHitCondition(snake, food):
 
 # Class to represent snake instance
 class snake:
-    def __init__(self, x, y, color=(0, 255, 0), pixels=None):
+    def __init__(self, x, y, color = (0, 255, 0), pixels = None, index = -1):
         self.x = x
         self.y = y
         self.hdir = 0
         self.vdir = -10
+        self.length = 7
         if pixels == None:
-            self.pixels = [(x, y)]
+            self.pixels = [(x, y), (x, y), (x, y), (x, y), (x, y), (x, y), (x, y)]
         else:
             self.pixels = pixels
+        if index == None:
+            self.index = -1
+        else:
+            self.index = index
         self.color = color
-        self.crash = False
-        self.length = 7
+        self.crash = False        
         self.die = False
 
     def events(self, key):
@@ -267,21 +272,22 @@ class food():
 class StatusThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)        
-    def run(self):        
+    def run(self):
         # Checks for backend status
-        try:
-            with open(FIFO_R_PATH, 'r') as fifo:
-                readstr = "";
-                while running:
-                    # Non-blocking read.
-                    ch = fifo.read(1)
-                    if ch != '\n' and ch != '':
-                        readstr += str(ch)
-                    else:                        
+        
+        with open(FIFO_R_PATH, 'r') as fifo:
+            readstr = "";
+            while running:
+                # Non-blocking read.
+                ch = fifo.read(1)
+                if ch != '\n' and ch != '':
+                    readstr += str(ch)
+                else:         
+                    try:               
                         self.proc(readstr)
                         readstr = ""
-        except Exception as e:
-            print '[python] Process failed in Status Thread'            
+                    except Exception as e:
+                        print '[python] Process failed in Status Thread'                    
 
     # Process packet function
     # packet structure : CODE:EXT_CODE:DATA
@@ -289,7 +295,7 @@ class StatusThread(threading.Thread):
         if packet == '' or packet == '\n':
             return
         
-        global IsSync, _pFood
+        global IsSync, _pFood, _pSnakeQueue
 
         str_list = packet.split(':')
         if len(str_list) < 1:
@@ -301,33 +307,39 @@ class StatusThread(threading.Thread):
         # Time synchronization request
         if list_len == 1 and code == 'TIME':
                 IsSync = True
+
         # Food state request
         elif len(str_list) == 3 and code == 'FOOD':
             # print '[python] Read packet : {0}'.format(packet)
             food_x = int(str_list[1])
-            food_y = int(str_list[2])            
+            food_y = int(str_list[2])
             _pFood.setPosition(food_x, food_y)
 
         # Snake state request
         elif code == 'STATE':
             # print '[python] Read packet : {0}'.format(packet)
-            
+            # Create new snake and save state information in it, then put it in queue
+            tempsnake = None
             index = int(str_list[1]) - 1
             if str_list[2] == 'die':
-                _pSnakeArr[index].die = True
-                _pSnakeArr[index].crash = True
+                tempsnake = snake(_pInitPosArr[index][0], _pInitPosArr[index][1])
+                tempsnake.crash = True
+                tempsnake.die = True
             elif str_list[2] == 'live':
-                _pSnakeArr[index].die = False
-                _pSnakeArr[index].xpos = int(str_list[3])
-                _pSnakeArr[index].ypos = int(str_list[4])
-                _pSnakeArr[index].hdir = int(str_list[5])
-                _pSnakeArr[index].vdir = int(str_list[6])
-                _pSnakeArr[index].length = int(str_list[7])
-                pixelLen = min(int(str_list[8]), _pSnakeArr[index].length)
-                _pSnakeArr[index].pixels = []
+                tempsnake = snake(int(str_list[3]), int(str_list[4]))
+                tempsnake.die = False
+                tempsnake.hdir = int(str_list[5])
+                tempsnake.vdir = int(str_list[6])
+                tempsnake.length = int(str_list[7])
+                pixelLen = int(str_list[8])
+                temp_pixels = []
                 for i in xrange(0, pixelLen):
-                    _pSnakeArr[index].pixels.insert(0, (int(str_list[8 + i * 2]), int(str_list[9 + i * 2])))
-                
+                    temp_pixels.append((int(str_list[9 + i * 2]), int(str_list[10 + i * 2])))
+                tempsnake.pixels = temp_pixels
+            tempsnake.index = index
+            _pSnakeQueue.put(tempsnake)
+            print '[python] Put to queue. queue size is {0}'.format(_pSnakeQueue.qsize())
+
         # Snake has disconnected
         elif code == 'DISC':
             index = int(str_list[1]) - 1            
@@ -336,7 +348,7 @@ class StatusThread(threading.Thread):
 # Thread class to report my state periodly
 class ReportThread(threading.Thread):
     def __init__(self):
-        threading.Thread.__init__(self)        
+        threading.Thread.__init__(self)
     def run(self):        
         while running:
             mystate = 'STATE:{0}:'.format(_pSelfIndex)
@@ -344,8 +356,8 @@ class ReportThread(threading.Thread):
             sendToBackend(mystate)
             # foodstate = 'FOOD:' + getFoodState(_pFood) + '\n'
             # sendToBackend(foodstate)
-            # clock.tick(speed)
-            clock.tick(100)
+            clock.tick(speed)
+            # clock.tick(100)
 
 # Create food first for get postion from arguments
 _pFood = food()
@@ -371,6 +383,24 @@ while running:
     IsSync = False
 
     screen.fill((0, 0, 0))
+
+    while _pSnakeQueue.empty() == False:
+        tempsnake = _pSnakeQueue.get()
+        index = tempsnake.index
+        if tempsnake.die == True:
+            _pSnakeArr[index].die = True
+            _pSnakeArr[index].crash = True
+        else:
+            _pSnakeArr[index].x = tempsnake.x
+            _pSnakeArr[index].y = tempsnake.y
+            _pSnakeArr[index].hdir = tempsnake.hdir            
+            _pSnakeArr[index].vdir = tempsnake.vdir
+            _pSnakeArr[index].length = tempsnake.length
+            _pSnakeArr[index].pixels = []
+            _pSnakeArr[index].pixels = tempsnake.pixels            
+        del tempsnake
+        getSnakeState(_pSnakeArr[index])
+        # _pSnakeQueue.task_done()
 
     # move snake and food
     moveAndDrawSnakes(_pSnakeArr)
@@ -404,7 +434,7 @@ while running:
     clock.tick(speed)
 
     if _pSnakeArr[_pSelfIndex - 1].crash:
-        _pSnakeArr[x].die = True
+        _pSnakeArr[_pSelfIndex - 1].die = True
         mystate = 'STATE:{0}:'.format(_pSelfIndex)
         mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
         sendToBackend(mystate)
@@ -412,10 +442,10 @@ while running:
     live_cnt = 0
     live_index = -1
 
-    for x in xrange(0, _pPlayerNum):
-        if _pSnakeArr[x].die == False:            
+    for index in xrange(0, _pPlayerNum):
+        if _pSnakeArr[index].die == False:            
             live_cnt += 1
-            live_index = x
+            live_index = index
     
     # Logic to check who wins in a multiplayer game
 

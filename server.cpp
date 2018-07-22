@@ -347,7 +347,7 @@ void *server_time_thread_function(void *arg)
 {
     while (_pServer->m_bIsRunning)
     {    	
-    	usleep(40000);	// 1.5ms interval
+    	usleep(50000);	// 1.5ms interval
         serverTimeSyncRequest();
         serverBackendTimeRequest();
     }
