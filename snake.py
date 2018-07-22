@@ -57,6 +57,9 @@ speed = 30
 # Check if the game is running
 running = True
 
+# Flag variable to show exit recevie from backend
+exitFlag = False
+
 # Queue to store received data
 _pSnakeQueue = Queue()
 
@@ -132,7 +135,7 @@ def getSnakeState(snake):
 
         for index in xrange(0, pixelLen):
             state = state + ':' + str(snake.pixels[index][0]) + ':' + str(snake.pixels[index][1])
-    print '[python] Snake state : {0}'.format(state)    
+    state = state + '\n'
     return state
 
 # Get state of food
@@ -152,6 +155,10 @@ def moveAndDrawSnakes(snakeArr):
 def dispPlayerString(cnt):
     for x in xrange(0, cnt):
         text(_pDispStrArr[x], 16, (WIDTH * (x + 1)) / 5, 10, _pColorArr[x])
+
+# Display fps counter
+def dispFpsCounter():
+    text('fps: 60', 16, WIDTH - 60, HEIGHT - 20, (200, 200, 200))
 
 # Check condition if snake hits to food
 def checkHitCondition(snake, food):
@@ -287,7 +294,7 @@ class StatusThread(threading.Thread):
                         self.proc(readstr)
                         readstr = ""
                     except Exception as e:
-                        print '[python] Process failed in Status Thread'                    
+                        print '[python] Process failed in Status Thread. packet {0}'.format(readstr)
 
     # Process packet function
     # packet structure : CODE:EXT_CODE:DATA
@@ -295,7 +302,7 @@ class StatusThread(threading.Thread):
         if packet == '' or packet == '\n':
             return
         
-        global IsSync, _pFood, _pSnakeQueue
+        global IsSync, _pFood, _pSnakeQueue, running, exitFlag
 
         str_list = packet.split(':')
         if len(str_list) < 1:
@@ -307,6 +314,12 @@ class StatusThread(threading.Thread):
         # Time synchronization request
         if list_len == 1 and code == 'TIME':
                 IsSync = True
+
+        # Exit request
+        elif code == 'EXIT':
+            print '[python] Get exit request'
+            running = False
+            exitFlag = True
 
         # Food state request
         elif len(str_list) == 3 and code == 'FOOD':
@@ -334,11 +347,15 @@ class StatusThread(threading.Thread):
                 pixelLen = int(str_list[8])
                 temp_pixels = []
                 for i in xrange(0, pixelLen):
-                    temp_pixels.append((int(str_list[9 + i * 2]), int(str_list[10 + i * 2])))
+                    try:
+                        x = int(str_list[9 + i * 2])
+                        y = int(str_list[10 + i * 2])
+                        temp_pixels.append((x, y))
+                    except Exception as e:
+                        break
                 tempsnake.pixels = temp_pixels
             tempsnake.index = index
             _pSnakeQueue.put(tempsnake)
-            print '[python] Put to queue. queue size is {0}'.format(_pSnakeQueue.qsize())
 
         # Snake has disconnected
         elif code == 'DISC':
@@ -398,8 +415,7 @@ while running:
             _pSnakeArr[index].length = tempsnake.length
             _pSnakeArr[index].pixels = []
             _pSnakeArr[index].pixels = tempsnake.pixels            
-        del tempsnake
-        getSnakeState(_pSnakeArr[index])
+        del tempsnake        
         # _pSnakeQueue.task_done()
 
     # move snake and food
@@ -411,6 +427,9 @@ while running:
 
     # Display player string
     dispPlayerString(_pPlayerNum)
+
+    # Display fps counter
+    dispFpsCounter()
 
     # Checks for user input and perform the relevant actions.
     for event in pygame.event.get():
@@ -486,6 +505,7 @@ statThread.join()
 # repThread.join()
 
 # Send exit to backend 
-sendToBackend('EXIT\n')
+if not exitFlag:    
+    sendToBackend('EXIT\n')
 
 sys.exit()

@@ -15,7 +15,8 @@ public:
 	int m_nId;
 	int m_nPlayerCount;
 	int m_ClientSockArr[MAX_PLAYER];
-	bool m_bIsRunning;
+	volatile bool m_bIsRunning;
+	bool m_bPythonRunning;
 	bool m_bGameStart;
 	char* m_strFIFO_W_Path;
 	char* m_strFIFO_R_Path;

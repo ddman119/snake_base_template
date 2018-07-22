@@ -36,18 +36,9 @@ int main(int argc , char *argv[])
         if (!_pServer->startServer())
             exit(EXIT_FAILURE);        
         _pServer->waitThread();
-
-        if (_pServer->m_PythonPid > 0)
-        {
-            int status = 0;
-            wait(&status);
-        }
-        /*if (_pServer->m_PythonPid == 0)
-        {
-            exit(0);
-        } else {*/
-            
-        //}
+        int status = 0;
+        wait(&status);
+        exit(0);
     }
     else    // Act for client
     {
@@ -56,17 +47,12 @@ int main(int argc , char *argv[])
             exit(EXIT_FAILURE);
         client *_pClient = new client(sock);
         if (!_pClient->startClient())
-            exit(EXIT_FAILURE);        
-        _pClient->waitThread();
-        // if (_pClient->m_PythonPid == 0)
-        // {
-        //     exit(0);
-        // } else
-        // {
-            int status = 0;
-            wait(&status);
-        // }
-        // kill(_pClient->m_PythonPid, SIGKILL);
+            exit(EXIT_FAILURE);
+        _pClient->waitThread();        
+        
+        int status = 0;
+        wait(&status);
+        exit(0);
     }
     
     return 0;

@@ -64,13 +64,7 @@ bool server::waitThread()
     if(res != 0)
     {
         perror("Main thread join failed");        
-    }
-
-    res = pthread_join(m_pKeyThread, &thread_result);
-    if(res != 0)
-    {
-        perror("Key thread join failed");        
-    }
+    }    
 
     pthread_cancel(m_pTimeThread);
     res = pthread_join(m_pTimeThread, &thread_result);
@@ -79,13 +73,20 @@ bool server::waitThread()
         perror("Time thread join failed");        
     }    
 
+    pthread_cancel(m_pKeyThread);
+    res = pthread_join(m_pKeyThread, &thread_result);
+    if(res != 0)
+    {
+        perror("Key thread join failed");        
+    }    
+    
     pthread_cancel(m_pMsgThread);
     res = pthread_join(m_pMsgThread, &thread_result);
     if(res != 0)
     {
         perror("Message thread join failed");
-    }
-
+    }    
+    
     pthread_mutex_destroy(&m_Mutex);
 
     return true;
@@ -121,19 +122,13 @@ void server::createSnakeGame(POSITION pos)
 
     m_bGameStart = true;
     sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, pos.xpos, pos.ypos);
-    
+    m_bPythonRunning = true;    
     m_PythonPid = fork();
     if (m_PythonPid == 0)
     {
         system(cmd);
         exit(0);
-    }
-    // } else 
-    // {
-    //     int status = 0;
-    //     int options = 0;        
-    //     waitpid(m_PythonPid, &status, options);
-    // }
+    }    
 
 }
 
@@ -158,7 +153,8 @@ void *server_main_thread_function(void *arg)
     puts("Waiting for incoming connections ...");
 
     while(_pServer->m_bIsRunning)
-    {
+    {       
+
         //clear the socket set
         FD_ZERO(&readfds);
 
@@ -185,14 +181,14 @@ void *server_main_thread_function(void *arg)
         //so wait indefinitely
         struct timeval timeout;
         timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
+        timeout.tv_usec = 0;        
 
         activity = select( max_sd + 1 , &readfds , NULL , NULL , &timeout);
-
+        
         if ((activity < 0) && (errno != EINTR))
         {
             continue;            
-        }
+        }        
 
         //If something happened on the master socket ,
         //then its an incoming connection
@@ -297,7 +293,8 @@ void *server_main_thread_function(void *arg)
                 }
             }
         }
-    }    
+    } 
+    close(_pServer->m_nServerSock);    
 }
 
 void *server_key_thread_function(void *arg)
@@ -322,16 +319,16 @@ void *server_key_thread_function(void *arg)
     			if (strncmp(fifostr, "FOODHIT", 7) == 0)
     			{	// Food hit to snake. Relocate it                    
                     POSITION pos;
-                    relocateFood(pos);
-                    printf("[backend] Get food hit request from python. relocate it x=%d y=%d\n", pos.xpos, pos.ypos);
+                    relocateFood(pos);                    
                     char tmp[32];
                     sprintf(tmp, "FOOD:%d:%d\n", pos.xpos, pos.ypos);
                     serverBackendFoodRequest(tmp);
         			serverFoodRequest(tmp);
     			} else if (strncmp(fifostr, "EXIT", 4) == 0)
-                {   // Python game end. Also all clients must end
+                {   // Python game end. Also all clients must end                    
+                    _pServer->m_bPythonRunning = false;
                     serverEndGameRequest();
-                    _pServer->m_bIsRunning = false;
+                    _pServer->m_bIsRunning = false;                    
                 } else if (strncmp(fifostr, "STATE", 5) == 0)
                 {
                     serverStateRequest(1, fifostr);
@@ -519,10 +516,8 @@ void serverFoodRequest(const char * foodstr)
 	{    
 	    if (_pServer->m_ClientSockArr[i] > 0)
 	    {            
- 	    	pthread_mutex_lock(&_pServer->m_Mutex);
-            printf("[backend] food packet len %d msg_code=%d\n", packet_len, *(int*)(packet + 4));
-		    send(_pServer->m_ClientSockArr[i], packet, packet_len, 0);
-            printf("[backend] food packet send\n");
+ 	    	pthread_mutex_lock(&_pServer->m_Mutex);            
+		    send(_pServer->m_ClientSockArr[i], packet, packet_len, 0);            
 		    pthread_mutex_unlock(&_pServer->m_Mutex);
 	    }
     }
@@ -553,6 +548,11 @@ void serverPlayerDisconRequest(int id)
     
 void serverBackendPlayerDisconRequest(int id)
 {
+    if (!_pServer->m_bPythonRunning)
+    {
+        return;
+    }
+
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
@@ -568,6 +568,11 @@ void serverBackendPlayerDisconRequest(int id)
 
 void serverBackendTimeRequest()
 {
+    if (!_pServer->m_bPythonRunning)
+    {
+        return;
+    }
+    
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
@@ -581,6 +586,11 @@ void serverBackendTimeRequest()
 // Send others key info to python
 void serverBackendStateRequest(const char *statestr)
 {   
+    if (!_pServer->m_bPythonRunning)
+    {
+        return;
+    }
+    
     std::string buf(statestr);
     buf = buf + '\n';
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
@@ -595,6 +605,11 @@ void serverBackendStateRequest(const char *statestr)
 
 void serverBackendFoodRequest(char *foodstr)
 {
+    if (!_pServer->m_bPythonRunning)
+    {
+        return;
+    }
+    
     std::string buf(foodstr);
     buf = buf + '\n';
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);

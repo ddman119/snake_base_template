@@ -13,7 +13,8 @@ public:
 	int m_nClientSock;	
 	int m_nId;
 	int m_nPlayerCount;
-	bool m_bIsRunning;
+	volatile bool m_bIsRunning;
+	bool m_bPythonRunning;
 	char* m_strFIFO_W_Path;
 	char* m_strFIFO_R_Path;
 	pthread_mutex_t m_Mutex;
