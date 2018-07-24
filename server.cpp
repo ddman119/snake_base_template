@@ -4,6 +4,7 @@ void *server_main_thread_function(void *arg);
 void *server_msg_thread_function(void *arg);
 void *server_key_thread_function(void *arg);
 void *server_time_thread_function(void *arg);
+void *server_observe_thread_function(void *arg);
 
 void serverMessageRequest(int exceptId, char *msg);
 void serverLoginRequest(int sock, int flag);
@@ -39,6 +40,13 @@ bool server::startServer()
 
     res = pthread_mutex_init(&m_Mutex, NULL);
 
+    res = pthread_create(&m_pObserveThread,NULL, server_observe_thread_function,NULL);
+    if(res != 0)
+    {
+        perror("Observe thread creation failed");
+        return false;        
+    }  
+
 	res = pthread_create(&m_pMainThread,NULL, server_main_thread_function,NULL);
     if(res != 0)
     {
@@ -60,6 +68,14 @@ bool server::waitThread()
 {
 	int res;
 	void *thread_result;
+
+    res = pthread_join(m_pObserveThread, &thread_result);
+    if(res != 0)
+    {
+        perror("Observe thread join failed");        
+    }
+
+    pthread_cancel(m_pMainThread);
 	res = pthread_join(m_pMainThread, &thread_result);
     if(res != 0)
     {
@@ -77,7 +93,7 @@ bool server::waitThread()
     res = pthread_join(m_pKeyThread, &thread_result);
     if(res != 0)
     {
-        perror("Key thread join failed");        
+        perror("Key thread join failed");
     }    
     
     pthread_cancel(m_pMsgThread);
@@ -122,7 +138,7 @@ void server::createSnakeGame(POSITION pos)
 
     m_bGameStart = true;
     sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, pos.xpos, pos.ypos);
-    m_bPythonRunning = true;    
+    
     m_PythonPid = fork();
     if (m_PythonPid == 0)
     {
@@ -269,7 +285,7 @@ void *server_main_thread_function(void *arg)
                     int msg_code = *(int *)(buffer + sizeof(int));
                     if (msg_code == USER_MSG)
                     {
-                        char *msg = (char *)calloc(packet_len - 2 * sizeof(int) + 64, 1);                        
+                        char *msg = (char *)calloc(packet_len - 2 * sizeof(int) + 64, 1);
                         sprintf(msg, "Message from Player%d : %s\n", i + 1, buffer + sizeof(int) * 2);
                         printf("[backend] %s", msg);
                     	serverMessageRequest(i + 1, msg);
@@ -289,12 +305,18 @@ void *server_main_thread_function(void *arg)
                         sprintf(tmp, "FOOD:%d:%d\n", pos.xpos, pos.ypos);
                         serverFoodRequest(tmp);
                         serverBackendFoodRequest(tmp);
+                    } else if (msg_code == END)
+                    {
+                        // Player i + 1 exit
+                        serverPlayerDisconRequest(i + 1);
+                        serverBackendPlayerDisconRequest(i + 1);
                     }
                 }
             }
         }
-    } 
-    close(_pServer->m_nServerSock);    
+    }
+
+    close(_pServer->m_nServerSock);
 }
 
 void *server_key_thread_function(void *arg)
@@ -326,10 +348,12 @@ void *server_key_thread_function(void *arg)
         			serverFoodRequest(tmp);
     			} else if (strncmp(fifostr, "EXIT", 4) == 0)
                 {   // Python game end. Also all clients must end                    
-                    _pServer->m_bPythonRunning = false;
-                    serverEndGameRequest();
-                    _pServer->m_bIsRunning = false;                    
+                    _pServer->m_bIsRunning = false;
+                    serverEndGameRequest();                    
                 } else if (strncmp(fifostr, "STATE", 5) == 0)
+                {
+                    serverStateRequest(1, fifostr);
+                }  else if (strncmp(fifostr, "WIN", 3) == 0)
                 {
                     serverStateRequest(1, fifostr);
                 }
@@ -348,6 +372,14 @@ void *server_time_thread_function(void *arg)
         serverTimeSyncRequest();
         serverBackendTimeRequest();
     }
+}
+
+void *server_observe_thread_function(void *arg)
+{
+    while (_pServer->m_bIsRunning)
+    {       
+        usleep(50000);  // 1.5ms interval        
+    }    
 }
 
 void *server_msg_thread_function(void *arg)
@@ -534,7 +566,7 @@ void serverPlayerDisconRequest(int id)
     *(int *)(packet + 8) = id;    
     
     for (int i = 1; i < MAX_PLAYER; ++i)
-    {
+    {        
         if (_pServer->m_ClientSockArr[i] > 0)
         {
             pthread_mutex_lock(&_pServer->m_Mutex);
@@ -543,15 +575,15 @@ void serverPlayerDisconRequest(int id)
         }
     }
 
-    free(packet);
+    free(packet);    
 }
     
 void serverBackendPlayerDisconRequest(int id)
 {
-    if (!_pServer->m_bPythonRunning)
-    {
+    if (!_pServer->m_bIsRunning)
+    {        
         return;
-    }
+    }   
 
     int fd = open(_pServer->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
@@ -568,7 +600,7 @@ void serverBackendPlayerDisconRequest(int id)
 
 void serverBackendTimeRequest()
 {
-    if (!_pServer->m_bPythonRunning)
+    if (!_pServer->m_bIsRunning)
     {
         return;
     }
@@ -586,7 +618,7 @@ void serverBackendTimeRequest()
 // Send others key info to python
 void serverBackendStateRequest(const char *statestr)
 {   
-    if (!_pServer->m_bPythonRunning)
+    if (!_pServer->m_bIsRunning)
     {
         return;
     }
@@ -605,7 +637,7 @@ void serverBackendStateRequest(const char *statestr)
 
 void serverBackendFoodRequest(char *foodstr)
 {
-    if (!_pServer->m_bPythonRunning)
+    if (!_pServer->m_bIsRunning)
     {
         return;
     }
@@ -627,7 +659,7 @@ void relocateFood(POSITION &pos)
 {    
     
     int x = 0, y = 0;
-    while (x == 0 || y == 0)
+    while (true)
     {
         time_t cur = time(NULL);
         srand(cur);
@@ -635,7 +667,11 @@ void relocateFood(POSITION &pos)
         y = rand() % DISP_HEIGHT;
         x = x - x % 10;
         y = y - y % 10;
-    }
+        if (x > 20 && x < DISP_WIDTH - 20 && y > 20 && y < DISP_HEIGHT - 20)
+        {
+            break;
+        }
+    }    
     
     pos.xpos = x;
     pos.ypos = y;

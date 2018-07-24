@@ -3,11 +3,12 @@
 void *client_main_thread_function(void *arg);
 void *client_msg_thread_function(void *arg);
 void *client_key_thread_function(void *arg);
-void *client_time_thread_function(void *arg);
+void *client_observe_thread_function(void *arg);
 
 void clientMessageRequest(int sock, const char *msg);
 void clientStateRequest(int sock, const char *keystr);
 void clientFoodRequest(int sock);
+void clientEndRequest(int sock);
 
 void clientBackendStateRequest(const char *keystr);
 void clientBackendTimeRequest();
@@ -20,18 +21,21 @@ client *_pClient;
 client::client(int sock)
 	: m_nClientSock(sock)
 {
-	_pClient = this;
-    pthread_mutex_init(&m_Mutex, NULL);
+	_pClient = this;    
 }
 
 bool client::startClient()
 {
 	int res;
-    m_bIsRunning = true;
-    m_bPythonRunning = false;
+    m_bIsRunning = true;    
     m_nPlayerCount = 0;
 
-    res = pthread_mutex_init(&m_Mutex, NULL);
+    res = pthread_create(&m_pObserveThread,NULL, client_observe_thread_function,NULL);
+    if(res != 0)
+    {
+        perror("Observe thread creation failed");
+        return false;        
+    }
 
 	res = pthread_create(&m_pMainThread,NULL, client_main_thread_function,NULL);
     if(res != 0)
@@ -54,24 +58,26 @@ bool client::waitThread()
 {
 	int res;
     void *thread_result;
+    
+    res = pthread_join(m_pObserveThread, &thread_result);
+    if (res != 0)
+    {
+        perror("Observe thread join failed");
+    }
+
+    pthread_cancel(m_pMainThread);
 	res = pthread_join(m_pMainThread, &thread_result);
     if (res != 0)
     {
         perror("Main thread join failed");
-    }    
+    }
 
     pthread_cancel(m_pKeyThread);    
     res = pthread_join(m_pKeyThread, &thread_result);
     if (res != 0)
     {
         perror("Key thread join failed");        
-    }
-    
-    // res = pthread_join(m_pTimeThread, &thread_result);
-    // if (res != 0)
-    // {
-    //     perror("Time thread join failed");        
-    // }
+    }   
 
     pthread_cancel(m_pMsgThread);
 
@@ -79,10 +85,7 @@ bool client::waitThread()
     if (res != 0)
     {
         perror("Message thread join failed");        
-    }    
-
-    res = pthread_mutex_destroy(&m_Mutex);
-
+    }
     return true;
 }
 
@@ -103,16 +106,8 @@ void client::createSnakeGame(int food_x, int food_y)
     {
         perror("Key thread creation failed");
         return;
-    }
-    
-    // res = pthread_create(&m_pTimeThread,NULL, client_time_thread_function,NULL);
-    // if(res != 0)
-    // {
-    //     perror("Time thread creation failed");
-    //     return;
-    // }
+    }    
 
-    m_bPythonRunning = true;
     sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, food_x, food_y);   
     
     m_PythonPid = fork();
@@ -161,44 +156,35 @@ void *client_main_thread_function(void *arg)
             if ((valread = read( _pClient->m_nClientSock , buffer, MAX_BUFFER)) == 0)
             {
                 // close(_pClient->m_nClientSock);
-                _pClient->m_bIsRunning = false;
-                clientBackendExitRequest();                
+                clientBackendExitRequest();
+                _pClient->m_bIsRunning = false;                
             }
             else
             {                
                 int packet_len = *(int *)buffer;
                 int msg_code = *(int *)(buffer + sizeof(int));               
                 
+                if (_pClient->m_bIsRunning == false)
+                    continue;
+
                 if (msg_code == USER_MSG)
-                {
+                {                    
                     char *msg = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(msg, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
                     printf("[backend] %s", msg);
                     free(msg);
-                } else if (msg_code == STATE) {
+                } else if (msg_code == STATE) {                 
                     char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
-                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
-                    if (!_pClient->m_bPythonRunning)
-                    {
-                        continue;
-                    }
+                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));                    
                     clientBackendStateRequest(statestr);
                     free(statestr);
                 } else if (msg_code == TIME_SYNC) {                    
-                    if (!_pClient->m_bPythonRunning)
-                    {
-                        continue;
-                    }
                     clientBackendTimeRequest();                    
                 } else if (msg_code == FOOD) {                    
                     char *foodstr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(foodstr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));                    
-                    if (!_pClient->m_bPythonRunning)
-                    {
-                        continue;
-                    }
                     clientBackendFoodRequest(foodstr);
-                    free(foodstr);                    
+                    free(foodstr);
                 } else if (msg_code == START)
                 {
                     int player_count = *(int *)(buffer + sizeof(int) * 2);
@@ -210,25 +196,18 @@ void *client_main_thread_function(void *arg)
                     _pClient->createSnakeGame(food_x, food_y);                    
                 } else if (msg_code == END)
                 {
-                    _pClient->m_bIsRunning = false;
-                    if (!_pClient->m_bPythonRunning)
-                    {
-                        continue;
-                    }
                     clientBackendExitRequest();
+                    _pClient->m_bIsRunning = false;                    
                 } else if (msg_code == DISCON)
-                {
+                {                    
                     int id = *(int *)(buffer + sizeof(int) * 2);
-                    if (!_pClient->m_bPythonRunning)
-                    {
-                        continue;
-                    }
                     clientBackendPlayerDisconRequest(id);
                 }                
             }
         }        
     }
     close(_pClient->m_nClientSock);    
+    return NULL;
 }
 
 void *client_key_thread_function(void *arg)
@@ -253,28 +232,40 @@ void *client_key_thread_function(void *arg)
 
                 if (strncmp(fifostr, "EXIT", 4) == 0)
                 {   // Python game end. exit backend
-                    exit(0);                    
-                    _pClient->m_bPythonRunning = false;
-                    _pClient->m_bIsRunning = false;                    
+                    printf("[backend] Exit received\n");
+                    _pClient->m_bIsRunning = false;
+                    //clientEndRequest(_pClient->m_nClientSock);
+                } else if (strncmp(fifostr, "RECVEXIT", 8) == 0)
+                {
+                    // Python recv exit message, I can exit
+                    printf("[backend] python get my exit message\n");
                 } else if (strncmp(fifostr, "FOODHIT", 7) == 0)
                 {
                     clientFoodRequest(_pClient->m_nClientSock);
                 } else if (strncmp(fifostr, "STATE", 5) == 0)
                 {                    
                     clientStateRequest(_pClient->m_nClientSock, fifostr);
-                }                
+                } else if (strncmp(fifostr, "WIN", 3) == 0)
+                {
+                    clientStateRequest(_pClient->m_nClientSock, fifostr);
+                }
                 buf = "";
             }
         }
     }
 
-    close(fd);
-
+    close(fd);    
+    return NULL;
 }
 
-void *client_time_thread_function(void *arg)
+void *client_observe_thread_function(void *arg)
 {
+    while (_pClient->m_bIsRunning)
+    {
+        usleep(50000);
+    }
     
+    return NULL;
 }
 
 void *client_msg_thread_function(void *arg)
@@ -290,6 +281,8 @@ void *client_msg_thread_function(void *arg)
             }
         }
     }
+    printf("[backend] Exit from msg thread\n");
+    return NULL;
 }
 
 // Send inputed message to server
@@ -299,10 +292,8 @@ void clientMessageRequest(int sock, const char *msg)
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = USER_MSG;
-    strncpy(packet + 8, msg, strlen(msg));
-    pthread_mutex_lock(&_pClient->m_Mutex);
-    send(sock, packet, packet_len, 0);   
-    pthread_mutex_unlock(&_pClient->m_Mutex);
+    strncpy(packet + 8, msg, strlen(msg));    
+    send(sock, packet, packet_len, 0);       
     free(packet);
 }
 
@@ -313,10 +304,8 @@ void clientStateRequest(int sock, const char *statestr)
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
     *(int *)(packet + 4) = STATE;
-    strncpy(packet + 8, statestr, strlen(statestr));
-    pthread_mutex_lock(&_pClient->m_Mutex);
-    send(sock, packet, packet_len, 0);
-    pthread_mutex_unlock(&_pClient->m_Mutex);
+    strncpy(packet + 8, statestr, strlen(statestr));    
+    send(sock, packet, packet_len, 0);    
     free(packet);
 }
 
@@ -326,18 +315,25 @@ void clientFoodRequest(int sock)
     int packet_len = (1 + 1) * sizeof(int);
     char *packet = (char *)calloc(packet_len, sizeof(char));
     *(int *)packet = packet_len;
-    *(int *)(packet + 4) = FOOD;
-    pthread_mutex_lock(&_pClient->m_Mutex);
-    send(sock, packet, packet_len, 0);
-    pthread_mutex_unlock(&_pClient->m_Mutex);
+    *(int *)(packet + 4) = FOOD;    
+    send(sock, packet, packet_len, 0);    
     free(packet);
+}
+
+// Send end messge to server
+void clientEndRequest(int sock)
+{
+    int packet_len = (1 + 1) * sizeof(int);
+    char *packet = (char *)calloc(packet_len, sizeof(char));
+    *(int *)packet = packet_len;
+    *(int *)(packet + 4) = END;
+    send(sock, packet, packet_len, 0);    
+    free(packet);   
 }
 
 // Send others key info to python
 void clientBackendStateRequest(const char *statestr)
-{
-    if (!_pClient->m_bPythonRunning)
-        return;
+{    
     std::string buf(statestr);
     buf = buf + '\n';
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
@@ -352,8 +348,6 @@ void clientBackendStateRequest(const char *statestr)
 
 void clientBackendTimeRequest()
 {
-    if (!_pClient->m_bPythonRunning)
-        return;
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
@@ -367,8 +361,6 @@ void clientBackendTimeRequest()
 
 void clientBackendExitRequest()
 {    
-    if (!_pClient->m_bPythonRunning)
-        return;
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
@@ -381,8 +373,6 @@ void clientBackendExitRequest()
 
 void clientBackendFoodRequest(char *foodstr)
 {
-    if (!_pClient->m_bPythonRunning)
-        return;
     std::string buf(foodstr);
     buf = buf + '\n';
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
@@ -398,15 +388,13 @@ void clientBackendFoodRequest(char *foodstr)
 
 void clientBackendPlayerDisconRequest(int id)
 {
-    if (!_pClient->m_bPythonRunning)
-        return;
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
     if (fd == -1)
     {
         printf("[backend] Open fifo failed in disconnect request\n");
         return;
     }
-    char tmp[12];
+    char tmp[12] = {0};
     sprintf(tmp, "DISC:%d\n", id);
     write(fd, tmp, 12);
     close(fd);

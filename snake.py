@@ -57,8 +57,11 @@ speed = 30
 # Check if the game is running
 running = True
 
-# Flag variable to show exit recevie from backend
-exitFlag = False
+# Get exit msg from backend(really from server)
+exitFromServer = False
+
+# Index of winner
+winnerIndex = -1
 
 # Queue to store received data
 _pSnakeQueue = Queue()
@@ -302,7 +305,7 @@ class StatusThread(threading.Thread):
         if packet == '' or packet == '\n':
             return
         
-        global IsSync, _pFood, _pSnakeQueue, running, exitFlag
+        global IsSync, _pFood, _pSnakeQueue, running, exitFromServer, winnerIndex
 
         str_list = packet.split(':')
         if len(str_list) < 1:
@@ -318,8 +321,10 @@ class StatusThread(threading.Thread):
         # Exit request
         elif code == 'EXIT':
             print '[python] Get exit request'
+            exitFromServer = True
             running = False
-            exitFlag = True
+            # Send exit to backend
+            # sendToBackend('RECVEXIT\n')            
 
         # Food state request
         elif len(str_list) == 3 and code == 'FOOD':
@@ -328,6 +333,27 @@ class StatusThread(threading.Thread):
             food_y = int(str_list[2])
             _pFood.setPosition(food_x, food_y)
 
+        # Winner state request
+        elif code == 'WIN':
+            # print '[python] WINNER : {0}'.format(packet)
+            winnerIndex = int(str_list[1]) - 1
+            tempsnake = snake(int(str_list[3]), int(str_list[4]))
+            tempsnake.die = False
+            tempsnake.hdir = int(str_list[5])
+            tempsnake.vdir = int(str_list[6])
+            tempsnake.length = int(str_list[7])
+            pixelLen = int(str_list[8])
+            temp_pixels = []
+            for i in xrange(0, pixelLen):
+                try:
+                    x = int(str_list[9 + i * 2])
+                    y = int(str_list[10 + i * 2])
+                    temp_pixels.append((x, y))
+                except Exception as e:
+                    break
+            tempsnake.pixels = temp_pixels
+            tempsnake.index = winnerIndex
+            _pSnakeQueue.put(tempsnake)
         # Snake state request
         elif code == 'STATE':
             # print '[python] Read packet : {0}'.format(packet)
@@ -359,8 +385,12 @@ class StatusThread(threading.Thread):
 
         # Snake has disconnected
         elif code == 'DISC':
-            index = int(str_list[1]) - 1            
-            _pSnakeArr[index].die = True
+            index = int(str_list[1]) - 1
+            tempsnake = snake(_pInitPosArr[index][0], _pInitPosArr[index][1])
+            tempsnake.crash = True
+            tempsnake.die = True
+            tempsnake.index = index
+            _pSnakeQueue.put(tempsnake)            
 
 # Thread class to report my state periodly
 class ReportThread(threading.Thread):
@@ -376,6 +406,14 @@ class ReportThread(threading.Thread):
             clock.tick(speed)
             # clock.tick(100)
 
+class ObserveThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+    def run(self):        
+        while running:            
+            clock.tick(speed)
+        sys.exit()
+
 # Create food first for get postion from arguments
 _pFood = food()
 
@@ -389,6 +427,9 @@ createSnakeArray(_pSnakeArr, _pPlayerNum)
 statThread = StatusThread()
 statThread.start()
 
+# obsThread = ObserveThread()
+# obsThread.start()
+
 # Report my state periodly to backend
 # repThread = ReportThread()
 # repThread.start()
@@ -396,35 +437,54 @@ statThread.start()
 while running:
     # Wait until time synchronize request come in
     while not IsSync:
+        if not running:
+            break
         clock.tick(100)
     IsSync = False
 
     screen.fill((0, 0, 0))
 
-    while _pSnakeQueue.empty() == False:
-        tempsnake = _pSnakeQueue.get()
-        index = tempsnake.index
-        if tempsnake.die == True:
-            _pSnakeArr[index].die = True
-            _pSnakeArr[index].crash = True
-        else:
-            _pSnakeArr[index].x = tempsnake.x
-            _pSnakeArr[index].y = tempsnake.y
-            _pSnakeArr[index].hdir = tempsnake.hdir            
-            _pSnakeArr[index].vdir = tempsnake.vdir
-            _pSnakeArr[index].length = tempsnake.length
-            _pSnakeArr[index].pixels = []
-            _pSnakeArr[index].pixels = tempsnake.pixels            
-        del tempsnake        
-        # _pSnakeQueue.task_done()
+    # There is no winner yet
+    if winnerIndex == -1:        
+        while _pSnakeQueue.empty() == False:
+            tempsnake = _pSnakeQueue.get()
+            index = tempsnake.index
+            if tempsnake.die == True:
+                _pSnakeArr[index].die = True
+                _pSnakeArr[index].crash = True
+            else:
+                _pSnakeArr[index].x = tempsnake.x
+                _pSnakeArr[index].y = tempsnake.y
+                _pSnakeArr[index].hdir = tempsnake.hdir            
+                _pSnakeArr[index].vdir = tempsnake.vdir
+                _pSnakeArr[index].length = tempsnake.length
+                _pSnakeArr[index].pixels = []
+                _pSnakeArr[index].pixels = tempsnake.pixels            
+            del tempsnake
 
-    # move snake and food
-    moveAndDrawSnakes(_pSnakeArr)
-    _pFood.draw()
+        # move snake and food
+        moveAndDrawSnakes(_pSnakeArr)
+        _pFood.draw()
 
-    # Check if self hits to food
-    checkHitCondition(_pSnakeArr[_pSelfIndex - 1], _pFood)
+        # Check if self hits to food
+        checkHitCondition(_pSnakeArr[_pSelfIndex - 1], _pFood)
 
+    # There is winner, his index is winnerIndex, draw only him
+    else:
+        while _pSnakeQueue.empty() == False:
+            tempsnake = _pSnakeQueue.get()
+            if tempsnake.index == winnerIndex:                        
+                _pSnakeArr[winnerIndex].x = tempsnake.x
+                _pSnakeArr[winnerIndex].y = tempsnake.y
+                _pSnakeArr[winnerIndex].hdir = tempsnake.hdir            
+                _pSnakeArr[winnerIndex].vdir = tempsnake.vdir
+                _pSnakeArr[winnerIndex].length = tempsnake.length
+                _pSnakeArr[winnerIndex].pixels = []
+                _pSnakeArr[winnerIndex].pixels = tempsnake.pixels            
+            del tempsnake
+
+        _pSnakeArr[winnerIndex].draw()
+    
     # Display player string
     dispPlayerString(_pPlayerNum)
 
@@ -433,7 +493,7 @@ while running:
 
     # Checks for user input and perform the relevant actions.
     for event in pygame.event.get():
-        if event.type == pygame.QUIT:
+        if event.type == pygame.QUIT:            
             running = False
 
         if event.type == pygame.KEYDOWN:
@@ -441,9 +501,10 @@ while running:
                 _pSnakeArr[_pSelfIndex - 1].events(event.key)
                 mystate = 'STATE:{0}:'.format(_pSelfIndex)
                 mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
-                sendToBackend(mystate)
+                if running:                    
+                    sendToBackend(mystate)
 
-            if event.key == pygame.K_ESCAPE:
+            if event.key == pygame.K_ESCAPE:                
                 running = False
 
             clock.tick(speed)
@@ -452,34 +513,49 @@ while running:
     pygame.display.flip()
     clock.tick(speed)
 
-    if _pSnakeArr[_pSelfIndex - 1].crash:
+    # Logic to check who wins in a multiplayer game
+
+    live_cnt = 0    
+
+    # Check if I have crashed. If true, then send my state to backend
+    if _pSnakeArr[_pSelfIndex - 1].crash and not _pSnakeArr[_pSelfIndex - 1].die:
         _pSnakeArr[_pSelfIndex - 1].die = True
         mystate = 'STATE:{0}:'.format(_pSelfIndex)
         mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
-        sendToBackend(mystate)
+        if running:
+            sendToBackend(mystate)
 
-    live_cnt = 0
-    live_index = -1
+    # Check when I am alive, if there is another snake alive
+    elif not _pSnakeArr[_pSelfIndex - 1].crash:        
+        for index in xrange(0, _pPlayerNum):
+            if _pSnakeArr[index].die == False:
+                live_cnt += 1
+        # live_cnt = 1 then I am the only snake alive.
+        if live_cnt == 1:
+            # Send 'WIN' message to backend
+            mystate = 'WIN:{0}:'.format(_pSelfIndex)
+            mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
+            if running:
+                # print '[python] WINNER : {0}'.format(mystate)
+                sendToBackend(mystate)
+            winnerIndex = _pSelfIndex - 1
 
-    for index in xrange(0, _pPlayerNum):
-        if _pSnakeArr[index].die == False:            
-            live_cnt += 1
-            live_index = index
-    
-    # Logic to check who wins in a multiplayer game
+    # I have died early, and there is winner
+    elif winnerIndex != -1:
+        live_cnt = 1
 
     while (live_cnt == 1 and _pPlayerNum != 1 and running):
-        text(_pWinStrArr[live_index], 40, -1, -1, _pColorArr[live_index])        
+        text(_pWinStrArr[winnerIndex], 40, -1, -1, _pColorArr[winnerIndex])        
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
         
         pygame.display.flip()
         clock.tick(50)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if event.type == pygame.QUIT:                
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_x:
+                if event.key == pygame.K_x:                    
                     running = False
 
     while (live_cnt == 0 and _pPlayerNum == 1 and running):
@@ -490,22 +566,23 @@ while running:
         clock.tick(50)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+            if event.type == pygame.QUIT:                
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_x:
+                if event.key == pygame.K_x:                    
                     running = False
 
 # Wait for status thread exit
 
 statThread.join()
 
+# obsThread.join()
 # Wait for report thread exit
 
 # repThread.join()
 
-# Send exit to backend 
-if not exitFlag:    
+# Send exit to backend
+if not exitFromServer:
     sendToBackend('EXIT\n')
 
 sys.exit()

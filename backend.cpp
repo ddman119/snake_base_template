@@ -173,7 +173,7 @@ int server_connect(int& serverSock, struct sockaddr_in& serverAddr){
 
     //type of socket created
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons( PORT );
 
     //bind the socket to localhost port 8888

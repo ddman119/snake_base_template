@@ -23,6 +23,6 @@ public:
 private:
 	pthread_t m_pMainThread;
 	pthread_t m_pMsgThread;
-	pthread_t m_pTimeThread;
+	pthread_t m_pObserveThread;
 	pthread_t m_pKeyThread;
 };
