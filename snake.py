@@ -463,7 +463,7 @@ while running:
             del tempsnake
 
         # move snake and food
-        moveAndDrawSnakes(_pSnakeArr)
+        moveAndDrawSnakes(_pSnakeArr)        
         _pFood.draw()
 
         # Check if self hits to food
@@ -484,6 +484,7 @@ while running:
             del tempsnake
 
         _pSnakeArr[winnerIndex].draw()
+        _pFood.draw()
     
     # Display player string
     dispPlayerString(_pPlayerNum)
