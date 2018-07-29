@@ -27,6 +27,9 @@ IsSync = False;
 # Array to represent snakes
 _pSnakeArr = []
 
+# Array to show die order
+_pDieOrder = []
+
 # Food instance
 _pFood = None
 
@@ -305,7 +308,7 @@ class StatusThread(threading.Thread):
         if packet == '' or packet == '\n':
             return
         
-        global IsSync, _pFood, _pSnakeQueue, running, exitFromServer, winnerIndex
+        global IsSync, _pFood, _pSnakeQueue, running, exitFromServer, winnerIndex, _pDieOrder
 
         str_list = packet.split(':')
         if len(str_list) < 1:
@@ -364,7 +367,8 @@ class StatusThread(threading.Thread):
                 # the snake has died
                 tempsnake = snake(_pInitPosArr[index][0], _pInitPosArr[index][1])
                 tempsnake.crash = True
-                tempsnake.die = True
+                tempsnake.die = True                
+                _pDieOrder.append(index)
             elif str_list[2] == 'live':
                 # the snake's state has changed
                 tempsnake = snake(int(str_list[3]), int(str_list[4]))
@@ -392,7 +396,8 @@ class StatusThread(threading.Thread):
             tempsnake.crash = True
             tempsnake.die = True
             tempsnake.index = index
-            _pSnakeQueue.put(tempsnake)            
+            _pDieOrder.append(index)
+            _pSnakeQueue.put(tempsnake)
 
 # Create food first for get postion from arguments
 _pFood = food()
@@ -494,6 +499,7 @@ while running:
     # Check if I have crashed. If true, then send my state to backend
     if _pSnakeArr[_pSelfIndex - 1].crash and not _pSnakeArr[_pSelfIndex - 1].die:
         _pSnakeArr[_pSelfIndex - 1].die = True
+        _pDieOrder.append(_pSelfIndex - 1)
         mystate = 'STATE:{0}:'.format(_pSelfIndex)
         mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
         if running:
@@ -518,7 +524,8 @@ while running:
     elif winnerIndex != -1:
         live_cnt = 1
 
-    while (live_cnt == 1 and _pPlayerNum != 1 and running):
+    # If only one player has lived, diplay string to show he is winner
+    while (live_cnt == 1 and _pPlayerNum != 1 and running):        
         text(_pWinStrArr[winnerIndex], 40, -1, -1, _pColorArr[winnerIndex])        
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
         
@@ -530,8 +537,35 @@ while running:
                 running = False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_x:                    
-                    running = False
+                    running = False        
 
+    # If no player has lived, then it is tie state and display string to show it is tie state
+    while (live_cnt == 0 and _pPlayerNum != 1 and running):
+        _ballow = True
+        for i in xrange(0, _pPlayerNum):
+            if _pSnakeArr[i].die == False:
+                _ballow = False
+                break
+        
+        if not _ballow:
+            break
+
+        lastIndex = _pDieOrder[_pPlayerNum - 1]
+        finalIndex = _pDieOrder[_pPlayerNum - 2]
+        dispstr = 'Player {0} tied with Player {1}'.format(lastIndex + 1, finalIndex + 1)
+        text(dispstr, 40, -1, -1, (100, 100, 100))
+        text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
+        
+        pygame.display.flip()
+        clock.tick(50)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:                
+                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_x:                    
+                    running = False
+        
     while (live_cnt == 0 and _pPlayerNum == 1 and running):
         text("Game Over, Score: " + str(score), 40, -1, -1, (255, 255, 255))        
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
