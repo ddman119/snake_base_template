@@ -24,12 +24,17 @@ client::client(int sock)
 	_pClient = this;    
 }
 
+/**
+* Start client
+* @return : if start is success, then return true, otherwise return false
+*/
 bool client::startClient()
 {
 	int res;
     m_bIsRunning = true;    
     m_nPlayerCount = 0;
 
+    // Start observe thread
     res = pthread_create(&m_pObserveThread,NULL, client_observe_thread_function,NULL);
     if(res != 0)
     {
@@ -37,13 +42,15 @@ bool client::startClient()
         return false;        
     }
 
+    // Start server communication thread
 	res = pthread_create(&m_pMainThread,NULL, client_main_thread_function,NULL);
     if(res != 0)
     {
         perror("Main thread creation failed");
         return false;        
     }
-        
+    
+    // Start message thread
     res = pthread_create(&m_pMsgThread,NULL, client_msg_thread_function,NULL);
     if(res != 0)
     {
@@ -54,33 +61,45 @@ bool client::startClient()
     return true;    
 }
 
+/**
+* Wait all thread exit
+* @return : if waiting success and all thread have joined, then return true, otherwise return false
+*/
 bool client::waitThread()
 {
 	int res;
     void *thread_result;
     
+    // Wait observe thread exit
     res = pthread_join(m_pObserveThread, &thread_result);
     if (res != 0)
     {
         perror("Observe thread join failed");
     }
 
+    // When observe thread has exited, then other thread have to also exit
+
+    // Send cancel request to server communication thread
     pthread_cancel(m_pMainThread);
+    // Wait server communicatin thread exit
 	res = pthread_join(m_pMainThread, &thread_result);
     if (res != 0)
     {
         perror("Main thread join failed");
     }
 
-    pthread_cancel(m_pKeyThread);    
+    // Send cancel request to python communication thread
+    pthread_cancel(m_pKeyThread);
+    // Wait python communication thread exit
     res = pthread_join(m_pKeyThread, &thread_result);
     if (res != 0)
     {
         perror("Key thread join failed");        
     }   
 
+    // Send cancel request to message thread
     pthread_cancel(m_pMsgThread);
-
+    // Wait message thread exit
     res = pthread_join(m_pMsgThread, &thread_result);
     if (res != 0)
     {
@@ -89,18 +108,24 @@ bool client::waitThread()
     return true;
 }
 
+/**
+* Start game
+* @param : food_x, food_y - position of food
+*/
 void client::createSnakeGame(int food_x, int food_y)
 {
     char cmd[MAX_LEN];
     int res;
     m_strFIFO_W_Path = (char *)calloc(MAX_PATH, sizeof(char));
     m_strFIFO_R_Path = (char *)calloc(MAX_PATH, sizeof(char));
+    // Make read/write fifo in the path of '/tmp' 
     sprintf(m_strFIFO_R_Path, "/tmp/snakegame_fifo_w_%d", m_nId);
     sprintf(m_strFIFO_W_Path, "/tmp/snakegame_fifo_r_%d", m_nId);
 
     mkfifo(m_strFIFO_W_Path, 0666);
     mkfifo(m_strFIFO_R_Path, 0666);
 
+    // Start python communication thread
     res = pthread_create(&m_pKeyThread,NULL, client_key_thread_function,NULL);
     if(res != 0)
     {
@@ -110,14 +135,18 @@ void client::createSnakeGame(int food_x, int food_y)
 
     sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, food_x, food_y);   
     
+    // Create new child process
     m_PythonPid = fork();
     if (m_PythonPid == 0)
-    {        
-        system(cmd);     
+    {   // Run python game in child process
+        system(cmd);        
         exit(0);
     }  
 }
 
+/**
+* Server communicatin thread function
+*/
 void *client_main_thread_function(void *arg)
 {
     int new_socket , activity, i , valread , sd;
@@ -133,7 +162,7 @@ void *client_main_thread_function(void *arg)
         //clear the socket set
         FD_ZERO(&readfds);
 
-        //add master socket to set
+        //add client socket to set
         FD_SET(_pClient->m_nClientSock, &readfds);        
 
         //wait for an activity on one of the sockets , timeout is 1s        
@@ -148,19 +177,18 @@ void *client_main_thread_function(void *arg)
             printf("select error");
             continue;
         }
-
-        //If something happened on the master socket ,
-        //then its an incoming connection
+        
         if (FD_ISSET(_pClient->m_nClientSock, &readfds))
-        {
+        {   // Something happened on the client socket
             if ((valread = read( _pClient->m_nClientSock , buffer, MAX_BUFFER)) == 0)
             {
-                // close(_pClient->m_nClientSock);
+                // Socket has disconnected, then send exit request to python
                 clientBackendExitRequest();
-                _pClient->m_bIsRunning = false;                
+                // Client running is false
+                _pClient->m_bIsRunning = false;
             }
             else
-            {                
+            {
                 int packet_len = *(int *)buffer;
                 int msg_code = *(int *)(buffer + sizeof(int));               
                 
@@ -168,25 +196,28 @@ void *client_main_thread_function(void *arg)
                     continue;
 
                 if (msg_code == USER_MSG)
-                {                    
+                {   // User message
                     char *msg = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(msg, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
                     printf("[backend] %s", msg);
                     free(msg);
-                } else if (msg_code == STATE) {                 
+                } else if (msg_code == STATE) {
+                    // Other client state
                     char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));                    
                     clientBackendStateRequest(statestr);
                     free(statestr);
-                } else if (msg_code == TIME_SYNC) {                    
+                } else if (msg_code == TIME_SYNC) {
+                    // Server time synchronization
                     clientBackendTimeRequest();                    
-                } else if (msg_code == FOOD) {                    
+                } else if (msg_code == FOOD) {
+                    // Food state                
                     char *foodstr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
                     memcpy(foodstr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));                    
                     clientBackendFoodRequest(foodstr);
                     free(foodstr);
                 } else if (msg_code == START)
-                {
+                {   // Game start
                     int player_count = *(int *)(buffer + sizeof(int) * 2);
                     int id = *(int *)(buffer + sizeof(int) * 3);
                     int food_x = *(int *)(buffer + sizeof(int) * 4);
@@ -195,11 +226,11 @@ void *client_main_thread_function(void *arg)
                     _pClient->m_nPlayerCount = player_count;                    
                     _pClient->createSnakeGame(food_x, food_y);                    
                 } else if (msg_code == END)
-                {
+                {   // Game end
                     clientBackendExitRequest();
                     _pClient->m_bIsRunning = false;                    
                 } else if (msg_code == DISCON)
-                {                    
+                {   // Other client disconnect      
                     int id = *(int *)(buffer + sizeof(int) * 2);
                     clientBackendPlayerDisconRequest(id);
                 }                
@@ -210,6 +241,9 @@ void *client_main_thread_function(void *arg)
     return NULL;
 }
 
+/**
+* Communication with python thread function
+*/
 void *client_key_thread_function(void *arg)
 {
     int fd = open(_pClient->m_strFIFO_R_Path, O_RDONLY);
@@ -236,17 +270,16 @@ void *client_key_thread_function(void *arg)
                     _pClient->m_bIsRunning = false;
                     //clientEndRequest(_pClient->m_nClientSock);
                 } else if (strncmp(fifostr, "RECVEXIT", 8) == 0)
-                {
-                    // Python recv exit message, I can exit
+                {   // Python recv exit message, I can exit
                     printf("[backend] python get my exit message\n");
                 } else if (strncmp(fifostr, "FOODHIT", 7) == 0)
-                {
+                {   // Python has hit to food, send server this infomation
                     clientFoodRequest(_pClient->m_nClientSock);
                 } else if (strncmp(fifostr, "STATE", 5) == 0)
-                {                    
+                {   // Python state has changed, send server this infomation
                     clientStateRequest(_pClient->m_nClientSock, fifostr);
                 } else if (strncmp(fifostr, "WIN", 3) == 0)
-                {
+                {   // Python has won, send server this infomation
                     clientStateRequest(_pClient->m_nClientSock, fifostr);
                 }
                 buf = "";
@@ -258,8 +291,11 @@ void *client_key_thread_function(void *arg)
     return NULL;
 }
 
+/**
+* Client observe thread function
+*/
 void *client_observe_thread_function(void *arg)
-{
+{    
     while (_pClient->m_bIsRunning)
     {
         usleep(50000);
@@ -268,15 +304,19 @@ void *client_observe_thread_function(void *arg)
     return NULL;
 }
 
+/**
+* Client message thread function
+*/
 void *client_msg_thread_function(void *arg)
 {
     while (_pClient->m_bIsRunning)
     {
         char msg[MAX_BUFFER];
+        // Get string from stdin
         if (fgets(msg, MAX_BUFFER, stdin) != NULL)
         {
             if (strncmp(msg, "-m", 2) == 0)     // message command
-            {
+            {   // '-m' indicates that this is message, send server this message
                 clientMessageRequest(_pClient->m_nClientSock, msg + 2);
             }
         }
@@ -285,7 +325,11 @@ void *client_msg_thread_function(void *arg)
     return NULL;
 }
 
-// Send inputed message to server
+/**
+* Send inputed message to server
+* @param : sock - client socket
+* @param : mag - client message
+*/
 void clientMessageRequest(int sock, const char *msg)
 {
     int packet_len = (1 + 1) * sizeof(int) + strlen(msg);
@@ -297,7 +341,11 @@ void clientMessageRequest(int sock, const char *msg)
     free(packet);
 }
 
-// Send pressed key to server
+/**
+* Send server client state
+* @param : sock - client socket
+* @param : statestr - client state string
+*/
 void clientStateRequest(int sock, const char *statestr)
 {
     int packet_len = (1 + 1) * sizeof(int) + strlen(statestr);
@@ -309,7 +357,10 @@ void clientStateRequest(int sock, const char *statestr)
     free(packet);
 }
 
-// Send food relocate request to server
+/**
+* Send server food relocate request
+* @param : sock - client socket
+*/
 void clientFoodRequest(int sock)
 {
     int packet_len = (1 + 1) * sizeof(int);
@@ -320,7 +371,10 @@ void clientFoodRequest(int sock)
     free(packet);
 }
 
-// Send end messge to server
+/**
+* Send server end request when python exit
+* @param : sock - client socket
+*/
 void clientEndRequest(int sock)
 {
     int packet_len = (1 + 1) * sizeof(int);
@@ -331,7 +385,10 @@ void clientEndRequest(int sock)
     free(packet);   
 }
 
-// Send others key info to python
+/**
+* Send python other client state
+* @param : statestr - other client state string
+*/
 void clientBackendStateRequest(const char *statestr)
 {    
     std::string buf(statestr);
@@ -346,6 +403,9 @@ void clientBackendStateRequest(const char *statestr)
     close(fd);
 }
 
+/**
+* Send python time synchronization request
+*/
 void clientBackendTimeRequest()
 {
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
@@ -359,6 +419,9 @@ void clientBackendTimeRequest()
     close(fd);
 }
 
+/**
+* Send python exit request
+*/
 void clientBackendExitRequest()
 {    
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);
@@ -371,6 +434,10 @@ void clientBackendExitRequest()
     close(fd);   
 }
 
+/**
+* Send python food relocate request
+* @param : foodstr - food position string
+*/
 void clientBackendFoodRequest(char *foodstr)
 {
     std::string buf(foodstr);
@@ -386,6 +453,10 @@ void clientBackendFoodRequest(char *foodstr)
     close(fd);  
 }
 
+/**
+* Send python other player disconnect request
+* @param : id - id of client has disconnected
+*/
 void clientBackendPlayerDisconRequest(int id)
 {
     int fd = open(_pClient->m_strFIFO_W_Path, O_WRONLY);

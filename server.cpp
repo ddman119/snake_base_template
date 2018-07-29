@@ -30,6 +30,10 @@ server::server(int serverSock, struct sockaddr_in serverAddr)
 	_pServer = this;	
 }
 
+/**
+* Start server
+* @return : If starting server success, return true, otherwise return false
+*/
 bool server::startServer()
 {
 	int res;
@@ -38,8 +42,10 @@ bool server::startServer()
 	m_nPlayerCount = 1;
 	m_PythonPid = 0;
 
+    // Init mutex
     res = pthread_mutex_init(&m_Mutex, NULL);
 
+    // Start observe thread
     res = pthread_create(&m_pObserveThread,NULL, server_observe_thread_function,NULL);
     if(res != 0)
     {
@@ -47,6 +53,7 @@ bool server::startServer()
         return false;        
     }  
 
+    // Start main communication thread
 	res = pthread_create(&m_pMainThread,NULL, server_main_thread_function,NULL);
     if(res != 0)
     {
@@ -54,6 +61,7 @@ bool server::startServer()
         return false;        
     }    
 
+    // Start message thread
     res = pthread_create(&m_pMsgThread,NULL, server_msg_thread_function,NULL);
     if(res != 0)
     {
@@ -64,62 +72,85 @@ bool server::startServer()
     return true;    
 }
 
+/**
+* Wait all threads exit
+* @return : if all threads have exited successfully, then return true, otherwise return false
+*/
 bool server::waitThread()
 {
 	int res;
 	void *thread_result;
 
+    // Wait observe thread exit
     res = pthread_join(m_pObserveThread, &thread_result);
     if(res != 0)
     {
         perror("Observe thread join failed");        
     }
 
+    // If observe thread has exited, then other threads must be exited
+
+    // Send cancel request to main thread
     pthread_cancel(m_pMainThread);
+    // Wait main thread exit
 	res = pthread_join(m_pMainThread, &thread_result);
     if(res != 0)
     {
         perror("Main thread join failed");        
     }    
 
+    // Send cancel request to time thread
     pthread_cancel(m_pTimeThread);
+    // Wait time thread exit
     res = pthread_join(m_pTimeThread, &thread_result);
     if(res != 0)
     {
         perror("Time thread join failed");        
     }    
 
+    // Send cancel request to python communication thread
     pthread_cancel(m_pKeyThread);
+    // Wait python communication thread exit
     res = pthread_join(m_pKeyThread, &thread_result);
     if(res != 0)
     {
         perror("Key thread join failed");
     }    
     
+    // Send cancel request to message thread
     pthread_cancel(m_pMsgThread);
+    // Wait message thread exit
     res = pthread_join(m_pMsgThread, &thread_result);
     if(res != 0)
     {
         perror("Message thread join failed");
     }    
     
+    // Destroy mutex
     pthread_mutex_destroy(&m_Mutex);
 
     return true;
 }
 
+/**
+* Start snake game
+* @param : pos - food initial position
+*/
 void server::createSnakeGame(POSITION pos)
 {
 	char cmd[MAX_LEN];
 	
 	m_strFIFO_W_Path = (char *)calloc(MAX_PATH, sizeof(char));
 	m_strFIFO_R_Path = (char *)calloc(MAX_PATH, sizeof(char));
+
+    // Make read/write fifo in path of '/tmp'
 	sprintf(m_strFIFO_R_Path, "/tmp/snakegame_fifo_w_%d", m_nId);
 	sprintf(m_strFIFO_W_Path, "/tmp/snakegame_fifo_r_%d", m_nId);
 
 	mkfifo(m_strFIFO_W_Path, 0666);
 	mkfifo(m_strFIFO_R_Path, 0666);
 	
+    // Start python communication thread
 	int res = pthread_create(&m_pKeyThread,NULL, server_key_thread_function,NULL);
     if(res != 0)
     {
@@ -128,6 +159,7 @@ void server::createSnakeGame(POSITION pos)
         return;
     }
     
+    // Start time synchroniztion thread
     res = pthread_create(&m_pTimeThread,NULL, server_time_thread_function,NULL);
     if(res != 0)
     {
@@ -138,16 +170,20 @@ void server::createSnakeGame(POSITION pos)
 
     m_bGameStart = true;
     sprintf(cmd, "python snake.py %d %d %d %d", m_nPlayerCount, m_nId, pos.xpos, pos.ypos);
-    
+    // Create child process
     m_PythonPid = fork();
     if (m_PythonPid == 0)
     {
+        // Run python game in child process
         system(cmd);
         exit(0);
     }    
 
 }
 
+/**
+* Server main communication thread function
+*/
 void *server_main_thread_function(void *arg)
 {
     int new_socket , activity, i , valread , sd;
@@ -169,8 +205,7 @@ void *server_main_thread_function(void *arg)
     puts("Waiting for incoming connections ...");
 
     while(_pServer->m_bIsRunning)
-    {       
-
+    {
         //clear the socket set
         FD_ZERO(&readfds);
 
@@ -233,16 +268,17 @@ void *server_main_thread_function(void *arg)
                 }
             }
 
+            // If player count has exceeded MAX_PLAYER, then send client refuse request
             if (i == MAX_PLAYER)
             {
                 printf("New player from %s can not play because of maximum player count\n", inet_ntoa(_pServer->m_ServerAddr.sin_addr));
                 serverLoginRequest(new_socket, -1);
             } else if (_pServer->m_bGameStart)
-            {
+            {   // If game has already started, then send client refuse request
                 printf("New player from %s can not play because game already start\n", inet_ntoa(_pServer->m_ServerAddr.sin_addr));
                 serverLoginRequest(new_socket, -2);
             } else
-            {
+            {   // Increase player count, and send client request agree request
             	_pServer->m_nPlayerCount ++;
                 printf("New player created. Current player count is %d\n", _pServer->m_nPlayerCount);                
                 serverLoginRequest(new_socket, 0);
@@ -272,7 +308,7 @@ void *server_main_thread_function(void *arg)
                     _pServer->m_ClientSockArr[i] = 0;
                     
                     if (_pServer->m_bGameStart)
-                    {
+                    {   // Send player disconnect request to all clients and python
                         serverPlayerDisconRequest(i + 1);
                         serverBackendPlayerDisconRequest(i + 1);
                     }
@@ -284,21 +320,21 @@ void *server_main_thread_function(void *arg)
                     int packet_len = *(int *)buffer;
                     int msg_code = *(int *)(buffer + sizeof(int));
                     if (msg_code == USER_MSG)
-                    {
+                    {   // User message
                         char *msg = (char *)calloc(packet_len - 2 * sizeof(int) + 64, 1);
                         sprintf(msg, "Message from Player%d : %s\n", i + 1, buffer + sizeof(int) * 2);
                         printf("[backend] %s", msg);
                     	serverMessageRequest(i + 1, msg);
                         free(msg);
                     } else if (msg_code == STATE)
-                    {
+                    {   // Client state
                     	char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
 	                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
 	                    serverBackendStateRequest(statestr);
 	                    serverStateRequest(i + 1, statestr);
 	                    free(statestr);
                     } else if (msg_code == FOOD)
-                    {
+                    {   // Food request
                         POSITION pos;
                         relocateFood(pos);
                         char tmp[32];
@@ -306,7 +342,7 @@ void *server_main_thread_function(void *arg)
                         serverFoodRequest(tmp);
                         serverBackendFoodRequest(tmp);
                     } else if (msg_code == END)
-                    {
+                    {   // End request
                         // Player i + 1 exit
                         serverPlayerDisconRequest(i + 1);
                         serverBackendPlayerDisconRequest(i + 1);
@@ -319,6 +355,9 @@ void *server_main_thread_function(void *arg)
     close(_pServer->m_nServerSock);
 }
 
+/**
+* Python thread function
+*/
 void *server_key_thread_function(void *arg)
 {
 	int fd = open(_pServer->m_strFIFO_R_Path, O_RDONLY);
@@ -351,10 +390,10 @@ void *server_key_thread_function(void *arg)
                     _pServer->m_bIsRunning = false;
                     serverEndGameRequest();                    
                 } else if (strncmp(fifostr, "STATE", 5) == 0)
-                {
+                {   // Send my state to all clients
                     serverStateRequest(1, fifostr);
                 }  else if (strncmp(fifostr, "WIN", 3) == 0)
-                {
+                {   // Send win state to all clients
                     serverStateRequest(1, fifostr);
                 }
 
@@ -364,47 +403,60 @@ void *server_key_thread_function(void *arg)
     }  
 }
 
+/**
+* Server time synchronization thread
+*/
 void *server_time_thread_function(void *arg)
 {
     while (_pServer->m_bIsRunning)
     {    	
-    	usleep(50000);	// 1.5ms interval
+    	usleep(50000);	// 5ms interval
+        // Send time synchronization request to all clients
         serverTimeSyncRequest();
+        // Send time synchronization request to python
         serverBackendTimeRequest();
     }
 }
 
+/**
+* Server observe thread function
+*/
 void *server_observe_thread_function(void *arg)
 {
     while (_pServer->m_bIsRunning)
     {       
-        usleep(50000);  // 1.5ms interval        
+        usleep(50000);  // 5ms interval        
     }    
 }
 
+/**
+* Server message thread function
+*/
 void *server_msg_thread_function(void *arg)
 {    
     while (_pServer->m_bIsRunning)
     {
         char msg[MAX_BUFFER];
+        // Get string from stdin
         if (fgets(msg, MAX_BUFFER, stdin) != NULL)
         {        	
-        	if (strncmp(msg, "-c", 2) == 0)	// game control command
+        	if (strncmp(msg, "-c", 2) == 0)	// '-c' means game control command
         	{
         		if (!_pServer->m_bGameStart && strncmp(msg + 3, "start", 5) == 0)		// start game
-        		{        			
+        		{ // '-c start' means game start
         			_pServer->m_nId = 1;
                     POSITION pos;
+                    // relocate food
                     relocateFood(pos);        			
         			serverStartGameRequest(pos);
                     _pServer->createSnakeGame(pos);
         		} else if (strncmp(msg + 3, "exit", 4) == 0)		// end game
-        		{                    
+        		{ // '-c exit' means game end
         			serverEndGameRequest();
         			_pServer->m_bIsRunning = false;
         		}
-        	} else if (strncmp(msg, "-m", 2) == 0)	// message command
-        	{
+        	} else if (strncmp(msg, "-m", 2) == 0)
+        	{  // '-m' means message command
         		char* buf = (char *)calloc(strlen(msg) + 32, sizeof(char));
         		sprintf(buf, "Message from Player1 : %s\n", msg + 2);                
         		serverMessageRequest(1, buf);
@@ -414,7 +466,11 @@ void *server_msg_thread_function(void *arg)
     }
 }
 
-// reply to login request
+/**
+* Reply to client who wants to login
+* @param : sock - client socket
+* @param : flag - packet type (-1 : exceed maximum, -2 : game start already, 0 : agree)
+*/
 void serverLoginRequest(int sock, int flag)
 {
     int packet_len = (1 + 1 + 1) * sizeof(int);
@@ -428,7 +484,11 @@ void serverLoginRequest(int sock, int flag)
     free(packet);
 }
 
-// send message to sock
+/**
+* Send all clients message
+* @param : exceptId - do not send message to clients of this id
+* @param : msg - message content
+*/
 void serverMessageRequest(int exceptId, char *msg)
 {
 	int packet_len = (1 + 1) * sizeof(int) + strlen(msg);
@@ -450,6 +510,10 @@ void serverMessageRequest(int exceptId, char *msg)
     free(packet);
 }
 
+/**
+* Send start game request to all clients
+* @param : pos - food initial position
+*/
 void serverStartGameRequest(POSITION pos)
 {
 	int packet_len = (1 + 1 + 1 + 1 + 2) * sizeof(int);
@@ -474,6 +538,9 @@ void serverStartGameRequest(POSITION pos)
     free(packet);	
 }
 
+/**
+* Send end game request to all clients
+*/
 void serverEndGameRequest()
 {
 	int packet_len = (1 + 1) * sizeof(int);
@@ -494,7 +561,11 @@ void serverEndGameRequest()
     free(packet);		
 }
 
-// Send player state to client
+/**
+* Send one player state to clients
+* @param : exceptId - do not send request to the client of this id
+* @param : statestr - state string
+*/
 void serverStateRequest(int exceptId, const char *statestr)
 {
     int packet_len = (1 + 1) * sizeof(int) + strlen(statestr);
@@ -516,6 +587,9 @@ void serverStateRequest(int exceptId, const char *statestr)
     free(packet);
 }
 
+/**
+* Send all clients server time synchronization request
+*/
 void serverTimeSyncRequest()
 {
 	int packet_len = (1 + 1) * sizeof(int);
@@ -536,6 +610,10 @@ void serverTimeSyncRequest()
     free(packet);
 }
 
+/**
+* Send food state string to all clients
+* @param : foodstr - food state string
+*/
 void serverFoodRequest(const char * foodstr)
 {
 	int packet_len = (1 + 1) * sizeof(int) + strlen(foodstr);
@@ -557,6 +635,10 @@ void serverFoodRequest(const char * foodstr)
     free(packet);
 }
 
+/**
+* Send player disconnect request to all clients
+* @param : id - the id of client has disconnected
+*/
 void serverPlayerDisconRequest(int id)
 {
     int packet_len = (1 + 1 + 1) * sizeof(int);
@@ -578,6 +660,10 @@ void serverPlayerDisconRequest(int id)
     free(packet);    
 }
     
+/**
+* Send python player disconnect request
+* @param : id - the player has disconnected
+*/
 void serverBackendPlayerDisconRequest(int id)
 {
     if (!_pServer->m_bIsRunning)
@@ -598,6 +684,9 @@ void serverBackendPlayerDisconRequest(int id)
     close(fd);
 }
 
+/**
+* Send time synchronization request to python
+*/
 void serverBackendTimeRequest()
 {
     if (!_pServer->m_bIsRunning)
@@ -615,7 +704,10 @@ void serverBackendTimeRequest()
     close(fd);
 }
 
-// Send others key info to python
+/**
+* Send player state to python
+* @param : statestr - player state string
+*/
 void serverBackendStateRequest(const char *statestr)
 {   
     if (!_pServer->m_bIsRunning)
@@ -635,6 +727,10 @@ void serverBackendStateRequest(const char *statestr)
     close(fd);
 }
 
+/**
+* Send food state to python
+* @param : foodstr - food state string
+*/
 void serverBackendFoodRequest(char *foodstr)
 {
     if (!_pServer->m_bIsRunning)
@@ -655,6 +751,10 @@ void serverBackendFoodRequest(char *foodstr)
     close(fd);
 }
 
+/**
+* Relocate food
+* @param : pos - new postion of food
+*/
 void relocateFood(POSITION &pos)
 {    
     

@@ -361,10 +361,12 @@ class StatusThread(threading.Thread):
             tempsnake = None
             index = int(str_list[1]) - 1
             if str_list[2] == 'die':
+                # the snake has died
                 tempsnake = snake(_pInitPosArr[index][0], _pInitPosArr[index][1])
                 tempsnake.crash = True
                 tempsnake.die = True
             elif str_list[2] == 'live':
+                # the snake's state has changed
                 tempsnake = snake(int(str_list[3]), int(str_list[4]))
                 tempsnake.die = False
                 tempsnake.hdir = int(str_list[5])
@@ -392,28 +394,6 @@ class StatusThread(threading.Thread):
             tempsnake.index = index
             _pSnakeQueue.put(tempsnake)            
 
-# Thread class to report my state periodly
-class ReportThread(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-    def run(self):        
-        while running:
-            mystate = 'STATE:{0}:'.format(_pSelfIndex)
-            mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
-            sendToBackend(mystate)
-            # foodstate = 'FOOD:' + getFoodState(_pFood) + '\n'
-            # sendToBackend(foodstate)
-            clock.tick(speed)
-            # clock.tick(100)
-
-class ObserveThread(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-    def run(self):        
-        while running:            
-            clock.tick(speed)
-        sys.exit()
-
 # Create food first for get postion from arguments
 _pFood = food()
 
@@ -426,13 +406,6 @@ createSnakeArray(_pSnakeArr, _pPlayerNum)
 # Receive status info periodly from backend
 statThread = StatusThread()
 statThread.start()
-
-# obsThread = ObserveThread()
-# obsThread.start()
-
-# Report my state periodly to backend
-# repThread = ReportThread()
-# repThread.start()
 
 while running:
     # Wait until time synchronize request come in
@@ -574,13 +547,7 @@ while running:
                     running = False
 
 # Wait for status thread exit
-
 statThread.join()
-
-# obsThread.join()
-# Wait for report thread exit
-
-# repThread.join()
 
 # Send exit to backend
 if not exitFromServer:
