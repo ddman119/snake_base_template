@@ -56,7 +56,7 @@ _pDispStrArr = ["Player 1: Red", "Player 2: Green", "Player 3: Blue", "Player 4:
 _pWinStrArr = ["Winner: Player 1! ", "Winner: Player 2! ", "Winner: Player 3! ", "Winner: Player 4! "]
 
 # Speed of the game
-speed = 60
+speed = 100
 
 # Check if the game is running
 running = True
