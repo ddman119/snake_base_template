@@ -230,8 +230,10 @@ class snake:
             # Checks if this hits to other snakes
             snake_cnt = len(snakeArr)
             for x in xrange(0, snake_cnt):
-                if x != index and snakeArr[x].die == False and (self.x, self.y) in snakeArr[x].pixels:
+                if x != index and snakeArr[x].die == False and (self.x, self.y) in snakeArr[x].pixels:                    
                     self.crash = True
+                    if self.x == snakeArr[x].x and self.y == snakeArr[x].y:
+                        snakeArr[x].crash = True
             
             # Wraps the snake
             if self.x < 0:
