@@ -56,7 +56,7 @@ _pDispStrArr = ["Player 1: Red", "Player 2: Green", "Player 3: Blue", "Player 4:
 _pWinStrArr = ["Winner: Player 1! ", "Winner: Player 2! ", "Winner: Player 3! ", "Winner: Player 4! "]
 
 # Speed of the game
-speed = 30
+speed = 60
 
 # Check if the game is running
 running = True
@@ -421,7 +421,7 @@ while running:
     while not IsSync:
         if not running:
             break
-        clock.tick(100)
+        clock.tick(speed)
     IsSync = False
 
     screen.fill((0, 0, 0))
@@ -534,7 +534,7 @@ while running:
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
 
         pygame.display.flip()
-        clock.tick(50)
+        clock.tick(speed)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -561,7 +561,7 @@ while running:
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
 
         pygame.display.flip()
-        clock.tick(50)
+        clock.tick(speed)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -575,7 +575,7 @@ while running:
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
 
         pygame.display.flip()
-        clock.tick(50)
+        clock.tick(speed)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
