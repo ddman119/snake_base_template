@@ -204,7 +204,8 @@ void *client_main_thread_function(void *arg)
                 } else if (msg_code == STATE) {
                     // Other client state
                     char *statestr = (char *)calloc(packet_len - 2 * sizeof(int), 1);
-                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));                    
+                    memcpy(statestr, buffer + sizeof(int) * 2, packet_len - 2 * sizeof(int));
+                    //printf("[statestr] %s", statestr);                    
                     clientBackendStateRequest(statestr);
                     free(statestr);
                 } else if (msg_code == TIME_SYNC) {

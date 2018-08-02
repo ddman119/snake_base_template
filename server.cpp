@@ -574,6 +574,9 @@ void serverStateRequest(int exceptId, const char *statestr)
     *(int *)(packet + 4) = STATE;
     strncpy(packet + 8, statestr, strlen(statestr));
 
+    // Useful debug to print out packet to send out to the clients.
+    //std::cout << statestr << std::endl; 
+
     for (int i = 1; i < MAX_PLAYER; ++i)
 	{
 	    if (_pServer->m_ClientSockArr[i] > 0 && i + 1 != exceptId)
