@@ -8,13 +8,14 @@ import string
 import sys
 import threading
 from multiprocessing import Process, Lock, Queue
+import time
 
 # Screen Size (The default is set to smallest screen resolution for PCs)
 # TODO: Change this to detect the user's current screen resolution and use those dimensions for fullscreen.
 WIDTH = 800
 HEIGHT = 600
 
-# Score tracking 
+# Score tracking
 score = 0
 
 # Fifo read/write path
@@ -76,11 +77,11 @@ def startGame(food):
     if len(args) != 5:
         print '[python] Argument is invalid. \n Argument type must be : python snake.py [player count] [self index] [Food_x] [Food_y]'
         sys.exit()
-    
+
     global _pPlayerNum, _pSelfIndex
     _pPlayerNum = int(args[1])
     _pSelfIndex = int(args[2])
-    food.setPosition(int(args[3]), int(args[4]))    
+    food.setPosition(int(args[3]), int(args[4]))
 
     global FIFO_W_PATH, FIFO_R_PATH
     FIFO_W_PATH = '/tmp/snakegame_fifo_w_{0}'.format(_pSelfIndex)
@@ -120,7 +121,7 @@ def text(intext, size, inx, iny, color):
 def sendToBackend(data):
     try:
         with open(FIFO_W_PATH, 'w') as fifo:
-            # print '[python] Send to backend : {0}'.format(data)            
+            # print '[python] Send to backend : {0}'.format(data)
             fifo.write(data)
             fifo.flush()
             fifo.close()
@@ -130,7 +131,7 @@ def sendToBackend(data):
 # Get state of snake
 def getSnakeState(snake):
     state = ''
-    
+
     if snake.die:
         state = 'die'
     else:
@@ -146,12 +147,12 @@ def getSnakeState(snake):
 
 # Get state of food
 def getFoodState(food):
-    state = ''    
+    state = ''
     state = str(food.x) + ':' + str(food.y)
     return state
 
 # Move and draw all snakes
-def moveAndDrawSnakes(snakeArr):    
+def moveAndDrawSnakes(snakeArr):
     snake_cnt = len(snakeArr)
     for x in xrange(0, snake_cnt):
         snakeArr[x].move(x, snakeArr)
@@ -164,12 +165,13 @@ def dispPlayerString(cnt):
 
 # Display fps counter
 def dispFpsCounter():
-    text('fps: 60', 16, WIDTH - 60, HEIGHT - 20, (200, 200, 200))
+    fps = clock.get_fps()
+    text('fps: '+ str(fps), 16, WIDTH - 60, HEIGHT - 20, (200, 200, 200))
 
 # Check condition if snake hits to food
 def checkHitCondition(snake, food):
-    global score    
-    if food.hitCheck(snake.pixels):        
+    global score
+    if food.hitCheck(snake.pixels):
         score = score + 10
         snake.length = snake.length + 7
         # Send to backend for relocating food
@@ -198,7 +200,7 @@ class snake:
         else:
             self.index = index
         self.color = color
-        self.crash = False        
+        self.crash = False
         self.die = False
 
     def events(self, key):
@@ -230,11 +232,11 @@ class snake:
             # Checks if this hits to other snakes
             snake_cnt = len(snakeArr)
             for x in xrange(0, snake_cnt):
-                if x != index and snakeArr[x].die == False and (self.x, self.y) in snakeArr[x].pixels:                    
+                if x != index and snakeArr[x].die == False and (self.x, self.y) in snakeArr[x].pixels:
                     self.crash = True
                     if self.x == snakeArr[x].x and self.y == snakeArr[x].y:
                         snakeArr[x].crash = True
-            
+
             # Wraps the snake
             if self.x < 0:
                 self.x = WIDTH - 10
@@ -259,10 +261,10 @@ class snake:
 # Class to represend food instance
 class food():
     # Initialize the position for where food is placed.
-    def __init__(self):        
+    def __init__(self):
         self.x = random.randrange(20, WIDTH, 10)
         self.y = random.randrange(20, HEIGHT, 10)
-        
+
     # Set position of food
     def setPosition(self, xpos, ypos):
         self.x = xpos
@@ -277,7 +279,7 @@ class food():
     def relocate(self):
         self.x = random.randrange(20, WIDTH, 10)
         self.y = random.randrange(20, HEIGHT, 10)
-    
+
     # Draw the food onto the screen.
     def draw(self):
         pygame.draw.rect(screen, (255, 0, 0), (self.x, self.y + 10, 10, 10), 0)
@@ -286,10 +288,10 @@ class food():
 # Thread class to observe status from backend via fifo
 class StatusThread(threading.Thread):
     def __init__(self):
-        threading.Thread.__init__(self)        
+        threading.Thread.__init__(self)
     def run(self):
         # Checks for backend status
-        
+
         with open(FIFO_R_PATH, 'r') as fifo:
             readstr = "";
             while running:
@@ -297,8 +299,8 @@ class StatusThread(threading.Thread):
                 ch = fifo.read(1)
                 if ch != '\n' and ch != '':
                     readstr += str(ch)
-                else:         
-                    try:               
+                else:
+                    try:
                         self.proc(readstr)
                         readstr = ""
                     except Exception as e:
@@ -309,7 +311,7 @@ class StatusThread(threading.Thread):
     def proc(self, packet = ''):
         if packet == '' or packet == '\n':
             return
-        
+
         global IsSync, _pFood, _pSnakeQueue, running, exitFromServer, winnerIndex, _pDieOrder
 
         str_list = packet.split(':')
@@ -329,7 +331,7 @@ class StatusThread(threading.Thread):
             exitFromServer = True
             running = False
             # Send exit to backend
-            # sendToBackend('RECVEXIT\n')            
+            # sendToBackend('RECVEXIT\n')
 
         # Food state request
         elif len(str_list) == 3 and code == 'FOOD':
@@ -369,7 +371,7 @@ class StatusThread(threading.Thread):
                 # the snake has died
                 tempsnake = snake(_pInitPosArr[index][0], _pInitPosArr[index][1])
                 tempsnake.crash = True
-                tempsnake.die = True                
+                tempsnake.die = True
                 _pDieOrder.append(index)
             elif str_list[2] == 'live':
                 # the snake's state has changed
@@ -409,7 +411,7 @@ startGame(_pFood)
 
 # Create snake array
 createSnakeArray(_pSnakeArr, _pPlayerNum)
-    
+
 # Receive status info periodly from backend
 statThread = StatusThread()
 statThread.start()
@@ -425,7 +427,7 @@ while running:
     screen.fill((0, 0, 0))
 
     # There is no winner yet
-    if winnerIndex == -1:        
+    if winnerIndex == -1:
         while _pSnakeQueue.empty() == False:
             tempsnake = _pSnakeQueue.get()
             index = tempsnake.index
@@ -435,15 +437,15 @@ while running:
             else:
                 _pSnakeArr[index].x = tempsnake.x
                 _pSnakeArr[index].y = tempsnake.y
-                _pSnakeArr[index].hdir = tempsnake.hdir            
+                _pSnakeArr[index].hdir = tempsnake.hdir
                 _pSnakeArr[index].vdir = tempsnake.vdir
                 _pSnakeArr[index].length = tempsnake.length
                 _pSnakeArr[index].pixels = []
-                _pSnakeArr[index].pixels = tempsnake.pixels            
+                _pSnakeArr[index].pixels = tempsnake.pixels
             del tempsnake
 
         # move snake and food
-        moveAndDrawSnakes(_pSnakeArr)        
+        moveAndDrawSnakes(_pSnakeArr)
         _pFood.draw()
 
         # Check if self hits to food
@@ -453,19 +455,19 @@ while running:
     else:
         while _pSnakeQueue.empty() == False:
             tempsnake = _pSnakeQueue.get()
-            if tempsnake.index == winnerIndex:                        
+            if tempsnake.index == winnerIndex:
                 _pSnakeArr[winnerIndex].x = tempsnake.x
                 _pSnakeArr[winnerIndex].y = tempsnake.y
-                _pSnakeArr[winnerIndex].hdir = tempsnake.hdir            
+                _pSnakeArr[winnerIndex].hdir = tempsnake.hdir
                 _pSnakeArr[winnerIndex].vdir = tempsnake.vdir
                 _pSnakeArr[winnerIndex].length = tempsnake.length
                 _pSnakeArr[winnerIndex].pixels = []
-                _pSnakeArr[winnerIndex].pixels = tempsnake.pixels            
+                _pSnakeArr[winnerIndex].pixels = tempsnake.pixels
             del tempsnake
 
         _pSnakeArr[winnerIndex].draw()
         _pFood.draw()
-    
+
     # Display player string
     dispPlayerString(_pPlayerNum)
 
@@ -474,7 +476,7 @@ while running:
 
     # Checks for user input and perform the relevant actions.
     for event in pygame.event.get():
-        if event.type == pygame.QUIT:            
+        if event.type == pygame.QUIT:
             running = False
 
         if event.type == pygame.KEYDOWN:
@@ -482,21 +484,21 @@ while running:
                 _pSnakeArr[_pSelfIndex - 1].events(event.key)
                 mystate = 'STATE:{0}:'.format(_pSelfIndex)
                 mystate += getSnakeState(_pSnakeArr[_pSelfIndex - 1]) + '\n'
-                if running:                    
+                if running:
                     sendToBackend(mystate)
 
-            if event.key == pygame.K_ESCAPE:                
+            if event.key == pygame.K_ESCAPE:
                 running = False
 
             clock.tick(speed)
-    
+
     # Updates the display at the end.
     pygame.display.flip()
     clock.tick(speed)
 
     # Logic to check who wins in a multiplayer game
 
-    live_cnt = 0    
+    live_cnt = 0
 
     # Check if I have crashed. If true, then send my state to backend
     if _pSnakeArr[_pSelfIndex - 1].crash and not _pSnakeArr[_pSelfIndex - 1].die:
@@ -508,7 +510,7 @@ while running:
             sendToBackend(mystate)
 
     # Check when I am alive, if there is another snake alive
-    elif not _pSnakeArr[_pSelfIndex - 1].crash:        
+    elif not _pSnakeArr[_pSelfIndex - 1].crash:
         for index in xrange(0, _pPlayerNum):
             if _pSnakeArr[index].die == False:
                 live_cnt += 1
@@ -527,19 +529,19 @@ while running:
         live_cnt = 1
 
     # If only one player has lived, diplay string to show he is winner
-    while (live_cnt == 1 and _pPlayerNum != 1 and running):        
-        text(_pWinStrArr[winnerIndex], 40, -1, -1, _pColorArr[winnerIndex])        
+    while (live_cnt == 1 and _pPlayerNum != 1 and running):
+        text(_pWinStrArr[winnerIndex], 40, -1, -1, _pColorArr[winnerIndex])
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
-        
+
         pygame.display.flip()
         clock.tick(50)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:                
+            if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_x:                    
-                    running = False        
+                if event.key == pygame.K_x:
+                    running = False
 
     # If no player has lived, then it is tie state and display string to show it is tie state
     while (live_cnt == 0 and _pPlayerNum != 1 and running):
@@ -548,7 +550,7 @@ while running:
             if _pSnakeArr[i].die == False:
                 _ballow = False
                 break
-        
+
         if not _ballow:
             break
 
@@ -557,29 +559,29 @@ while running:
         dispstr = 'Player {0} tied with Player {1}'.format(lastIndex + 1, finalIndex + 1)
         text(dispstr, 40, -1, -1, (100, 100, 100))
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
-        
+
         pygame.display.flip()
         clock.tick(50)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:                
+            if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_x:                    
+                if event.key == pygame.K_x:
                     running = False
-        
+
     while (live_cnt == 0 and _pPlayerNum == 1 and running):
-        text("Game Over, Score: " + str(score), 40, -1, -1, (255, 255, 255))        
+        text("Game Over, Score: " + str(score), 40, -1, -1, (255, 255, 255))
         text("Press X to exit", 30, -1, HEIGHT / 2 + 30, (255, 255, 255))
-        
+
         pygame.display.flip()
         clock.tick(50)
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:                
+            if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_x:                    
+                if event.key == pygame.K_x:
                     running = False
 
 # Wait for status thread exit
