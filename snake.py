@@ -314,6 +314,9 @@ class StatusThread(threading.Thread):
 
         global IsSync, _pFood, _pSnakeQueue, running, exitFromServer, winnerIndex, _pDieOrder
 
+        # This print is useful for looking at the packet structure, and seeing what we expect from the synchronized message from the server. 
+        #print packet
+
         str_list = packet.split(':')
         if len(str_list) < 1:
             return
