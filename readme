@@ -1,6 +1,0 @@
-1. start game like this
-	./snake -s/-c [server ip address in case of client]
-2. send message each other like this
-	-m [message]
-3. start game like this
-	-c start

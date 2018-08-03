@@ -1,0 +1,13 @@
+This is where the snake.py runtime script and snake binary file is located and executed from.
+
+If you are confused, you may execute the game in the following manner:
+
+Using 1 computer/terminal, to setup the server:
+
+./snake -s
+
+Using another computer/terminal, to setup the client:
+
+./snake -c [IP ADDRESS OF SERVER]
+
+A total of 4 players are supported (1 server and 3 clients).
