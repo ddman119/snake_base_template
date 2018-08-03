@@ -1,0 +1,37 @@
+Network Synchronization Snake Game
+
+- Two Main Components
+	
+	- Frontend : snake.py
+
+		- Two main libraries:
+
+			- pygame library
+
+				- Used produce game logic and game animations.
+
+			- threading library
+
+				- Used to produce a status thread which can continuously read messages from the backend which have been synchronized by the server.
+
+				- These messages include: Time synchronization request, exit request, food/apple state changed request, 
+
+										  winner state request, snake die / live state request, snake disconnection request.
+
+	- Backend : backend.cpp/.h, server.cpp/.h, client.cpp/.h, global.h 
+
+		- The main function is located in backend, it's job is to decide which player is a server and which player is a client.
+
+			- The server will open up a socket for the client to connect to. 
+
+		- The server /client have several threads:
+
+			- Observe thread
+
+			- Main thread
+
+			- Message thread
+
+			- Server Key thread
+
+			- Time thread (Server only)
