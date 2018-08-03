@@ -1,0 +1,5 @@
+In order to build the binary files:
+
+./build.sh
+
+This command will make and build the "snake" binary backend and the "snake.py" into the /bin located in the root level of the repository.  
