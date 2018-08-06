@@ -1,4 +1,4 @@
-Network Synchronization Snake Game
+Multiplayer Network Synchronization Snake Game
 
 - Two Main Components
 	
