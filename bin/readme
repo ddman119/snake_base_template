@@ -10,4 +10,11 @@ Using another computer/terminal, to setup the client:
 
 ./snake -c [IP ADDRESS OF SERVER]
 
-A total of 4 players are supported (1 server and 3 clients).
+Side Notes:
+
+- A total of 4 players are supported (1 server and 3 clients).
+- If a player drops out and is the client, then that snake object will be destroyed but the game will continue.
+- If a player drops out and is the server, then the game for all players will be exited.
+- In order to play on different machines, please connect using the same network. 
+- If using VM on a machine like VirtualBox, make sure the network setting for that VM is set to Bridged Adapter, NOT NAT.
+
